@@ -7,9 +7,10 @@ import { ImageData } from '@/lib/types'
 interface GalleryProps {
   images: ImageData[]
   onImageClick: (image: ImageData) => void
+  storageBaseUrl: string
 }
 
-export default function Gallery({ images, onImageClick }: GalleryProps) {
+export default function Gallery({ images, onImageClick, storageBaseUrl }: GalleryProps) {
   return (
     <section className="px-4 md:px-6 pb-12">
       <div className="max-w-[2000px] mx-auto">
@@ -20,6 +21,7 @@ export default function Gallery({ images, onImageClick }: GalleryProps) {
               image={image}
               index={index}
               onClick={() => onImageClick(image)}
+              storageBaseUrl={storageBaseUrl}
             />
           ))}
         </div>
@@ -32,9 +34,10 @@ interface GalleryItemProps {
   image: ImageData
   index: number
   onClick: () => void
+  storageBaseUrl: string
 }
 
-function GalleryItem({ image, index, onClick }: GalleryItemProps) {
+function GalleryItem({ image, index, onClick, storageBaseUrl }: GalleryItemProps) {
   const [loaded, setLoaded] = useState(false)
   const [inView, setInView] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -86,7 +89,7 @@ function GalleryItem({ image, index, onClick }: GalleryItemProps) {
         {/* Image */}
         {inView && (
           <img
-            src={image.thumbnail}
+            src={`${storageBaseUrl}/${image.thumbnail}`}
             alt={image.title}
             className={`
               absolute inset-0 w-full h-full object-cover

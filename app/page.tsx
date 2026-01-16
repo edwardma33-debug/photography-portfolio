@@ -120,9 +120,10 @@ export default function Home() {
 
       {/* Gallery grid */}
       {!loading && galleryData && (
-        <Gallery 
-          images={filteredImages} 
+        <Gallery
+          images={filteredImages}
           onImageClick={handleImageClick}
+          storageBaseUrl={galleryData.storageBaseUrl}
         />
       )}
 
