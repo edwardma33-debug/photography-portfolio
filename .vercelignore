@@ -1,0 +1,14 @@
+# Don't deploy images to Vercel - they're served from Cloudflare R2
+public/thumbnails/
+public/previews/
+public/tiles/
+public/masters/
+
+# Python scripts
+scripts/
+__pycache__/
+*.py
+
+# Development files
+.env
+.env.local

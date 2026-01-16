@@ -83,3 +83,5 @@ Desktop.ini
 # Optional: Uncomment if you want to ignore processed images
 # These can be regenerated from masters using the processing script
 # public/data/gallery.json
+
+.vercel

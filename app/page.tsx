@@ -70,8 +70,8 @@ export default function Home() {
     img => filter === 'all' || img.collection === filter
   ) || []
 
-  const collections = galleryData 
-    ? ['all', ...new Set(galleryData.images.map(img => img.collection).filter(Boolean))]
+  const collections = galleryData
+    ? ['all', ...Array.from(new Set(galleryData.images.map(img => img.collection).filter(Boolean)))]
     : ['all']
 
   return (

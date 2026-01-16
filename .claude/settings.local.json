@@ -13,7 +13,11 @@
       "Bash(powershell -Command \"\\(Get-ChildItem -Recurse ''c:/Users/cley/Desktop/Portolio Project/public/tiles'' | Measure-Object -Property Length -Sum\\).Sum / 1MB\")",
       "Bash(python scripts/upload_to_r2.py:*)",
       "Bash(python -c:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd R2 storage integration and upload script\n\n- Created upload script for Cloudflare R2 \\(scripts/upload_to_r2.py\\)\n- Updated gallery.json with R2 storage URL\n- All images now served from https://pub-31b05f05afc34bc4888b24ae1c31d355.r2.dev\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd R2 storage integration and upload script\n\n- Created upload script for Cloudflare R2 \\(scripts/upload_to_r2.py\\)\n- Updated gallery.json with R2 storage URL\n- All images now served from https://pub-31b05f05afc34bc4888b24ae1c31d355.r2.dev\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(npx vercel login)",
+      "Bash(npx vercel:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }
