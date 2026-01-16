@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
 """
-Upload processed images to Cloudflare R2.
-
-Requirements:
-    pip install boto3
-
-Usage:
-    python upload_to_r2.py --bucket your-bucket-name ./public
-
-Environment variables required:
-    R2_ACCOUNT_ID       Your Cloudflare account ID
-    R2_ACCESS_KEY_ID    R2 API token access key
-    R2_SECRET_ACCESS_KEY R2 API token secret key
+Upload processed images to Cloudflare R2 storage.
+Uses boto3 (S3-compatible API) to upload all image assets.
 """
 
 import os
 import sys
-import argparse
+import json
 import mimetypes
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,161 +15,210 @@ try:
     import boto3
     from botocore.config import Config
 except ImportError:
-    print("boto3 required. Install with: pip install boto3")
+    print("Missing boto3. Install with: pip install boto3")
     sys.exit(1)
 
+# Load environment variables from .env file
+def load_env():
+    env_path = Path(__file__).parent.parent / '.env'
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ.setdefault(key.strip(), value.strip())
 
-# Folders to upload (relative to public/)
-UPLOAD_FOLDERS = ['thumbnails', 'previews', 'tiles', 'masters']
+load_env()
 
+# Configuration from environment
+R2_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID')
+R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY')
+R2_ACCOUNT_ID = os.environ.get('R2_ACCOUNT_ID')
+R2_BUCKET_NAME = 'edward-ma-photography'
+
+if not all([R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID]):
+    print("Error: Missing R2 credentials in .env file")
+    print("Required: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID")
+    sys.exit(1)
+
+# R2 endpoint
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+# Initialize S3 client for R2
+s3_client = boto3.client(
+    's3',
+    endpoint_url=R2_ENDPOINT,
+    aws_access_key_id=R2_ACCESS_KEY_ID,
+    aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+    config=Config(
+        signature_version='s3v4',
+        retries={'max_attempts': 3, 'mode': 'adaptive'}
+    )
+)
+
+# Directories to upload
+PUBLIC_DIR = Path(__file__).parent.parent / 'public'
+UPLOAD_DIRS = ['thumbnails', 'previews', 'tiles', 'masters']
 
 def get_content_type(filepath: Path) -> str:
-    """Determine content type for a file."""
+    """Get the MIME type for a file."""
     content_type, _ = mimetypes.guess_type(str(filepath))
     if content_type:
         return content_type
-    
+
+    # Fallback based on extension
     ext = filepath.suffix.lower()
-    types = {
+    type_map = {
         '.webp': 'image/webp',
         '.jpg': 'image/jpeg',
         '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
         '.tiff': 'image/tiff',
         '.tif': 'image/tiff',
-        '.png': 'image/png',
         '.dzi': 'application/xml',
-        '.xml': 'application/xml',
+        '.json': 'application/json',
     }
-    return types.get(ext, 'application/octet-stream')
+    return type_map.get(ext, 'application/octet-stream')
 
-
-def upload_file(s3_client, bucket: str, local_path: Path, key: str) -> bool:
+def upload_file(filepath: Path, key: str) -> dict:
     """Upload a single file to R2."""
     try:
-        content_type = get_content_type(local_path)
-        
-        # Set cache headers for different file types
-        if local_path.suffix in ('.tiff', '.tif'):
-            cache_control = 'public, max-age=31536000'  # 1 year for masters
-        else:
-            cache_control = 'public, max-age=86400'  # 1 day for thumbnails/previews
-        
-        s3_client.upload_file(
-            str(local_path),
-            bucket,
-            key,
-            ExtraArgs={
-                'ContentType': content_type,
-                'CacheControl': cache_control,
-            }
-        )
-        return True
-    except Exception as e:
-        print(f"  Error uploading {key}: {e}")
-        return False
+        content_type = get_content_type(filepath)
+        file_size = filepath.stat().st_size
 
+        # Set cache headers for immutable content
+        cache_control = 'public, max-age=31536000, immutable'
+
+        with open(filepath, 'rb') as f:
+            s3_client.put_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=key,
+                Body=f,
+                ContentType=content_type,
+                CacheControl=cache_control
+            )
+
+        return {
+            'success': True,
+            'key': key,
+            'size': file_size
+        }
+    except Exception as e:
+        return {
+            'success': False,
+            'key': key,
+            'error': str(e)
+        }
+
+def collect_files() -> list:
+    """Collect all files to upload."""
+    files = []
+
+    for dir_name in UPLOAD_DIRS:
+        dir_path = PUBLIC_DIR / dir_name
+        if not dir_path.exists():
+            print(f"Warning: {dir_name}/ directory not found, skipping...")
+            continue
+
+        for filepath in dir_path.rglob('*'):
+            if filepath.is_file():
+                # Create the R2 key (relative path from public/)
+                key = str(filepath.relative_to(PUBLIC_DIR)).replace('\\', '/')
+                files.append((filepath, key))
+
+    # Also upload gallery.json
+    gallery_json = PUBLIC_DIR / 'data' / 'gallery.json'
+    if gallery_json.exists():
+        files.append((gallery_json, 'data/gallery.json'))
+
+    return files
 
 def main():
-    parser = argparse.ArgumentParser(description='Upload processed images to Cloudflare R2')
-    parser.add_argument('source', type=Path, help='Source directory (usually ./public)')
-    parser.add_argument('--bucket', '-b', required=True, help='R2 bucket name')
-    parser.add_argument('--prefix', '-p', default='', help='Key prefix in bucket')
-    parser.add_argument('--workers', '-w', type=int, default=8, help='Parallel upload workers')
-    parser.add_argument('--dry-run', action='store_true', help='List files without uploading')
-    
-    args = parser.parse_args()
-    
-    # Check environment variables
-    account_id = os.environ.get('R2_ACCOUNT_ID')
-    access_key = os.environ.get('R2_ACCESS_KEY_ID')
-    secret_key = os.environ.get('R2_SECRET_ACCESS_KEY')
-    
-    if not all([account_id, access_key, secret_key]):
-        print("Error: Missing environment variables.")
-        print("Required: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY")
-        print("\nGet these from Cloudflare dashboard → R2 → Manage R2 API Tokens")
-        sys.exit(1)
-    
-    # Create S3 client for R2
-    s3 = boto3.client(
-        's3',
-        endpoint_url=f'https://{account_id}.r2.cloudflarestorage.com',
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        config=Config(
-            signature_version='s3v4',
-            retries={'max_attempts': 3}
-        )
-    )
-    
-    # Collect files to upload
-    files_to_upload = []
-    
-    for folder in UPLOAD_FOLDERS:
-        folder_path = args.source / folder
-        if not folder_path.exists():
-            print(f"Warning: {folder_path} does not exist, skipping")
-            continue
-        
-        for filepath in folder_path.rglob('*'):
-            if filepath.is_file():
-                # Build the key (path in bucket)
-                relative_path = filepath.relative_to(args.source)
-                key = f"{args.prefix}/{relative_path}" if args.prefix else str(relative_path)
-                key = key.replace('\\', '/')  # Windows compatibility
-                
-                files_to_upload.append((filepath, key))
-    
-    if not files_to_upload:
-        print("No files to upload!")
-        return
-    
-    print(f"Found {len(files_to_upload)} files to upload")
-    
-    if args.dry_run:
-        print("\nDry run - files that would be uploaded:")
-        for filepath, key in files_to_upload[:20]:
-            print(f"  {key}")
-        if len(files_to_upload) > 20:
-            print(f"  ... and {len(files_to_upload) - 20} more")
-        return
-    
-    # Calculate total size
-    total_size = sum(f[0].stat().st_size for f in files_to_upload)
-    print(f"Total size: {total_size / (1024**3):.2f} GB")
-    print(f"\nUploading to bucket: {args.bucket}")
     print("=" * 60)
-    
-    # Upload with progress
+    print("Cloudflare R2 Upload Script")
+    print("=" * 60)
+    print(f"\nBucket: {R2_BUCKET_NAME}")
+    print(f"Endpoint: {R2_ENDPOINT}")
+
+    # Collect files
+    print("\nCollecting files to upload...")
+    files = collect_files()
+
+    if not files:
+        print("No files found to upload!")
+        return
+
+    # Calculate total size
+    total_size = sum(f[0].stat().st_size for f in files)
+    print(f"Found {len(files)} files ({total_size / (1024*1024*1024):.2f} GB)")
+
+    # Group by directory for progress display
+    by_dir = {}
+    for filepath, key in files:
+        dir_name = key.split('/')[0]
+        by_dir.setdefault(dir_name, []).append((filepath, key))
+
+    print("\nBreakdown:")
+    for dir_name, dir_files in by_dir.items():
+        dir_size = sum(f[0].stat().st_size for f in dir_files)
+        print(f"  {dir_name}/: {len(dir_files)} files ({dir_size / (1024*1024):.1f} MB)")
+
+    # Confirm upload
+    print("\nPress Enter to start upload (Ctrl+C to cancel)...")
+    try:
+        input()
+    except KeyboardInterrupt:
+        print("\nUpload cancelled.")
+        return
+
+    # Upload files with progress
+    print("\nUploading...")
     uploaded = 0
     failed = 0
-    
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+    uploaded_size = 0
+
+    # Use thread pool for parallel uploads
+    max_workers = 8  # Parallel upload threads
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(upload_file, s3, args.bucket, fp, key): (fp, key)
-            for fp, key in files_to_upload
+            executor.submit(upload_file, filepath, key): (filepath, key)
+            for filepath, key in files
         }
-        
+
         for i, future in enumerate(as_completed(futures), 1):
             filepath, key = futures[future]
-            success = future.result()
-            
-            if success:
+            result = future.result()
+
+            if result['success']:
                 uploaded += 1
-                # Progress indicator
-                if i % 10 == 0 or i == len(files_to_upload):
-                    print(f"  Progress: {i}/{len(files_to_upload)} ({i*100//len(files_to_upload)}%)")
+                uploaded_size += result['size']
+                status = "OK"
             else:
                 failed += 1
-    
-    print("=" * 60)
-    print(f"Complete! Uploaded: {uploaded}, Failed: {failed}")
-    
-    if failed == 0:
-        print(f"\nYour files are available at:")
-        print(f"  https://{args.bucket}.{account_id}.r2.cloudflarestorage.com/")
-        print(f"\nOr set up a custom domain in Cloudflare dashboard.")
+                status = f"FAILED: {result['error']}"
 
+            # Progress bar
+            progress = i / len(files) * 100
+            print(f"\r[{progress:5.1f}%] {i}/{len(files)} - {key[:50]:<50} [{status}]", end='')
+
+            # Newline for errors
+            if not result['success']:
+                print()
+
+    print("\n")
+    print("=" * 60)
+    print("Upload Complete!")
+    print("=" * 60)
+    print(f"\nSuccessful: {uploaded} files ({uploaded_size / (1024*1024*1024):.2f} GB)")
+    if failed:
+        print(f"Failed: {failed} files")
+
+    print("\nNext steps:")
+    print("1. Get your public R2 URL from Cloudflare dashboard")
+    print("2. Update gallery.json storageBaseUrl with the public URL")
+    print("3. Deploy to Vercel")
 
 if __name__ == '__main__':
     main()
