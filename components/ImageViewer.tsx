@@ -92,16 +92,19 @@ export default function ImageViewer({
             const rect = viewerRef.current.getBoundingClientRect()
             console.log('Viewer container size:', rect.width, 'x', rect.height)
             osdRef.current.viewport.resize()
-            osdRef.current.viewport.goHome(true)
+
+            // Set default zoom to 67% of home (fit-to-screen) zoom
+            const homeZoom = osdRef.current.viewport.getHomeZoom()
+            const targetZoom = homeZoom * 0.67
+            osdRef.current.viewport.zoomTo(targetZoom, undefined, true)
           }
         }, 100)
 
-        const currentZoom = osdRef.current.viewport.getZoom()
         const homeZoom = osdRef.current.viewport.getHomeZoom()
         // Store home zoom for percentage calculation
         ;(osdRef.current as any).homeZoom = homeZoom
-        setZoomLevel(currentZoom / homeZoom) // Normalize to 1 = fit to screen
-        console.log('Initial zoom:', currentZoom, 'Home zoom:', homeZoom)
+        setZoomLevel(0.67) // Initial display at 67%
+        console.log('Home zoom:', homeZoom, 'Target zoom: 67%')
       }
     })
 
