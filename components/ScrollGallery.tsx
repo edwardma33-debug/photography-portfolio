@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, useScroll, useTransform } from 'framer-motion'
 import { useTimeTheme } from './TimeThemeProvider'
 import { ImageData } from '@/lib/types'
@@ -40,9 +40,9 @@ function ScrollImage({ image, index, total, onClick, storageBaseUrl }: ScrollIma
   const { theme } = useTimeTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const [loaded, setLoaded] = useState(false)
+  const [inView, setInView] = useState(false)
   const [developed, setDeveloped] = useState(false)
-  const [hasBeenSeen, setHasBeenSeen] = useState(false)
-  const developTimerRef = useRef<NodeJS.Timeout>()
+  const imgRef = useRef<HTMLImageElement>(null)
 
   const isPortrait = image.aspectRatio < 1
   const isLandscape = image.aspectRatio > 1.1
@@ -56,67 +56,93 @@ function ScrollImage({ image, index, total, onClick, storageBaseUrl }: ScrollIma
   const parallaxY = useTransform(scrollYProgress, [0, 1], [40, -40])
   const imageScale = useTransform(scrollYProgress, [0, 0.5, 1], [1.05, 1, 1.05])
 
-  // Film development: trigger when image enters viewport
+  // Start loading image early (600px before viewport)
   useEffect(() => {
     if (!containerRef.current) return
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && !hasBeenSeen) {
-          setHasBeenSeen(true)
-          // Start development after a short delay
-          developTimerRef.current = setTimeout(() => {
-            setDeveloped(true)
-          }, 300)
+        if (entry.isIntersecting) {
+          setInView(true)
+          observer.disconnect()
         }
       },
-      {
-        threshold: 0.15,
-        rootMargin: '0px',
-      }
+      { rootMargin: '600px' }
     )
 
     observer.observe(containerRef.current)
-    return () => {
-      observer.disconnect()
-      if (developTimerRef.current) clearTimeout(developTimerRef.current)
-    }
-  }, [hasBeenSeen])
+    return () => observer.disconnect()
+  }, [])
 
-  // Development animation stages via CSS
-  const getDevelopmentStyle = (): React.CSSProperties => {
-    if (hasBeenSeen && developed && loaded) {
-      // Fully developed
+  // When image is loaded AND in the viewport area, trigger the development
+  useEffect(() => {
+    if (!loaded || developed) return
+
+    // Check if already visible
+    if (!containerRef.current) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          // Image is loaded and visible — develop it
+          setDeveloped(true)
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [loaded, developed])
+
+  // Also: if image was already visible when it finishes loading, develop immediately
+  useEffect(() => {
+    if (!loaded || developed || !containerRef.current) return
+
+    const rect = containerRef.current.getBoundingClientRect()
+    const isVisible = rect.top < window.innerHeight && rect.bottom > 0
+    if (isVisible) {
+      setDeveloped(true)
+    }
+  }, [loaded, developed])
+
+  // Film development CSS — two states only: developing or developed
+  const getImageStyle = (): React.CSSProperties => {
+    if (developed) {
+      // Fully clear — once developed, stays developed forever
       return {
+        opacity: 1,
         filter: 'brightness(1) contrast(1) blur(0px) saturate(1)',
-        transition: 'filter 2.5s cubic-bezier(0.25, 0.1, 0.25, 1)',
+        transition: 'filter 2.5s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.5s ease',
       }
     }
-    if (hasBeenSeen && loaded) {
-      // Developing — shapes emerging
+
+    if (loaded) {
+      // Loaded but not yet scrolled into view — dark, shapes barely visible
       return {
-        filter: 'brightness(0.3) contrast(1.8) blur(6px) saturate(0)',
-        transition: 'filter 0.6s ease',
+        opacity: 1,
+        filter: 'brightness(0.15) contrast(1.4) blur(4px) saturate(0)',
+        transition: 'filter 0.8s ease, opacity 0.5s ease',
       }
     }
-    // Not yet visible — dark
+
+    // Not loaded yet — invisible
     return {
-      filter: 'brightness(0) contrast(1) blur(12px)',
-      transition: 'filter 0.3s ease',
+      opacity: 0,
+      filter: 'brightness(0) blur(12px)',
+      transition: 'opacity 0.3s ease',
     }
   }
 
   // Image sizing based on orientation
   const getImageContainerClass = () => {
     if (isLandscape) {
-      // Landscape: wider, less height
       return 'w-full max-w-[85vw] md:max-w-[75vw] lg:max-w-[70vw] mx-auto'
     }
     if (isPortrait) {
-      // Portrait: narrower, taller
       return 'w-[75vw] md:w-[50vw] lg:w-[40vw] xl:w-[35vw] mx-auto'
     }
-    // Square-ish
     return 'w-[80vw] md:w-[60vw] lg:w-[50vw] mx-auto'
   }
 
@@ -138,27 +164,30 @@ function ScrollImage({ image, index, total, onClick, storageBaseUrl }: ScrollIma
         >
           {/* Aspect ratio container */}
           <div style={{ paddingBottom: `${(1 / image.aspectRatio) * 100}%` }} className="relative">
-            {/* Developing background */}
+            {/* Dark background while loading */}
             <div
               className="absolute inset-0"
               style={{ background: theme.bgShift }}
             />
 
-            {/* The image itself */}
+            {/* The image — starts loading when 600px from viewport */}
             <motion.div
               style={{ scale: imageScale }}
               className="absolute inset-0"
             >
-              <img
-                src={`${storageBaseUrl}/${image.preview}`}
-                alt={image.title}
-                className="absolute inset-0 w-full h-full object-cover"
-                style={getDevelopmentStyle()}
-                onLoad={() => setLoaded(true)}
-              />
+              {inView && (
+                <img
+                  ref={imgRef}
+                  src={`${storageBaseUrl}/${image.preview}`}
+                  alt={image.title}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={getImageStyle()}
+                  onLoad={() => setLoaded(true)}
+                />
+              )}
             </motion.div>
 
-            {/* Subtle vignette on the image */}
+            {/* Subtle vignette */}
             <div
               className="absolute inset-0 pointer-events-none"
               style={{
@@ -167,7 +196,7 @@ function ScrollImage({ image, index, total, onClick, storageBaseUrl }: ScrollIma
             />
           </div>
 
-          {/* Hover: subtle zoom indicator */}
+          {/* Hover: zoom indicator */}
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
             <div
               className="w-12 h-12 rounded-full border flex items-center justify-center"
@@ -188,10 +217,10 @@ function ScrollImage({ image, index, total, onClick, storageBaseUrl }: ScrollIma
         <motion.div
           initial={false}
           animate={{
-            opacity: developed && loaded ? 1 : 0,
-            y: developed && loaded ? 0 : 10,
+            opacity: developed ? 1 : 0,
+            y: developed ? 0 : 10,
           }}
-          transition={{ duration: 0.8, delay: 1.5, ease: [0.4, 0, 0.2, 1] }}
+          transition={{ duration: 0.8, delay: developed ? 1.2 : 0, ease: [0.4, 0, 0.2, 1] }}
           className="mt-6 md:mt-8 flex justify-between items-end"
         >
           <div>
