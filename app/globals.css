@@ -387,3 +387,68 @@ body {
 .transition-slow {
   transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Ken Burns animations — three variants for variety */
+@keyframes kenburns-0 {
+  0% {
+    transform: scale(1.0) translate(0, 0);
+  }
+  50% {
+    transform: scale(1.12) translate(-1.5%, -1%);
+  }
+  100% {
+    transform: scale(1.0) translate(0, 0);
+  }
+}
+
+@keyframes kenburns-1 {
+  0% {
+    transform: scale(1.05) translate(1%, 0.5%);
+  }
+  50% {
+    transform: scale(1.0) translate(-0.5%, -0.5%);
+  }
+  100% {
+    transform: scale(1.05) translate(1%, 0.5%);
+  }
+}
+
+@keyframes kenburns-2 {
+  0% {
+    transform: scale(1.0) translate(0.5%, 1%);
+  }
+  50% {
+    transform: scale(1.1) translate(-1%, 0%);
+  }
+  100% {
+    transform: scale(1.0) translate(0.5%, 1%);
+  }
+}
+
+/* Film development shimmer — subtle grain overlay */
+.film-grain {
+  position: relative;
+}
+
+.film-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+/* Time-aware theme variable transitions */
+:root {
+  --theme-accent: #a0a0a0;
+  --theme-accent-muted: #666666;
+  --theme-border-tint: #2a2a2a;
+  --theme-text-tint: #a0a0a0;
+  --theme-bg-shift: #0a0a0a;
+  --theme-cursor-color: #e0e0e0;
+  --theme-cursor-hover: #fafafa;
+  --theme-glow-color: #ffffff;
+  --theme-glow-opacity: 0;
+}

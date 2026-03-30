@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   authors: [{ name: 'Edward Ma' }],
   openGraph: {
     title: 'Edward Ma — Photography',
-    description: 'A permanent gallery of photographs',
+    description: 'A permanent gallery of photographs by Edward Ma. Medium format photography capturing moments across the world.',
     type: 'website',
   },
 }

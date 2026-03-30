@@ -91,7 +91,7 @@ export default function About() {
               <p><span className="text-gallery-muted">Export:</span> 16-bit TIFF, Adobe RGB</p>
             </div>
 
-            <h2 className="font-display text-2xl text-gallery-white mt-12 mb-6">
+            <h2 id="contact" className="font-display text-2xl text-gallery-white mt-12 mb-6">
               Contact
             </h2>
 

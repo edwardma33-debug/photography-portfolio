@@ -37,6 +37,7 @@ export interface GalleryData {
   author: string
   storageBaseUrl: string  // Base URL for cloud storage (R2, S3, etc.)
   images: ImageData[]
+  heroImages: string[]    // IDs of images to feature on landing page
   collections: string[]
   lastUpdated: string
 }

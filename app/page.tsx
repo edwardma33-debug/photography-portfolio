@@ -1,10 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
-import Header from '@/components/Header'
-import Gallery from '@/components/Gallery'
+import TimeThemeProvider from '@/components/TimeThemeProvider'
+import CustomCursor from '@/components/CustomCursor'
+import LandingHero from '@/components/LandingHero'
+import ScrollGallery from '@/components/ScrollGallery'
+import AmbientAudio from '@/components/AmbientAudio'
+import EndCredits from '@/components/EndCredits'
 import { ImageData, GalleryData } from '@/lib/types'
 
 // Dynamically import ImageViewer to avoid SSR issues with OpenSeadragon
@@ -17,14 +21,16 @@ const ImageViewer = dynamic(() => import('@/components/ImageViewer'), {
   )
 })
 
+type AppState = 'landing' | 'gallery'
+
 export default function Home() {
   const [galleryData, setGalleryData] = useState<GalleryData | null>(null)
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<string>('all')
+  const [appState, setAppState] = useState<AppState>('landing')
+  const galleryTopRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Load gallery data from static JSON
     fetch('/data/gallery.json')
       .then(res => res.json())
       .then(data => {
@@ -49,142 +55,168 @@ export default function Home() {
 
   const handleNavigate = (direction: 'prev' | 'next') => {
     if (!selectedImage || !galleryData) return
-    
-    const images = filter === 'all' 
-      ? galleryData.images 
-      : galleryData.images.filter(img => img.collection === filter)
-    
+    const images = galleryData.images
     const currentIndex = images.findIndex(img => img.id === selectedImage.id)
     let newIndex: number
-    
+
     if (direction === 'prev') {
       newIndex = currentIndex > 0 ? currentIndex - 1 : images.length - 1
     } else {
       newIndex = currentIndex < images.length - 1 ? currentIndex + 1 : 0
     }
-    
+
     setSelectedImage(images[newIndex])
   }
 
-  const filteredImages = galleryData?.images.filter(
-    img => filter === 'all' || img.collection === filter
-  ) || []
+  const handleEnterGallery = useCallback(() => {
+    setAppState('gallery')
+    // Smooth scroll to top of gallery after landing dissolves
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    }, 100)
+  }, [])
 
-  const collections: string[] = galleryData
-    ? ['all', ...Array.from(new Set(galleryData.images.map(img => img.collection).filter((c): c is string => Boolean(c))))]
-    : ['all']
+  const handleReturnToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
+  // Get hero images from gallery data
+  const heroImages = galleryData?.heroImages
+    ?.map(id => galleryData.images.find(img => img.id === id))
+    .filter((img): img is ImageData => Boolean(img)) || []
 
   return (
-    <main className="min-h-screen bg-gallery-black">
-      <Header 
-        title={galleryData?.title || 'Gallery'}
-        subtitle={galleryData?.subtitle}
-      />
-      
-      {/* Collection filters */}
-      {collections.length > 1 && (
-        <nav className="sticky top-0 z-40 bg-gallery-black/90 backdrop-blur-sm border-b border-gallery-border">
-          <div className="max-w-[2000px] mx-auto px-6 py-4">
-            <div className="flex gap-6 overflow-x-auto scrollbar-hide">
-              {collections.map(collection => (
-                <button
-                  key={collection}
-                  onClick={() => setFilter(collection)}
-                  className={`
-                    font-mono text-xs uppercase tracking-widest whitespace-nowrap
-                    transition-colors duration-300
-                    ${filter === collection 
-                      ? 'text-gallery-white' 
-                      : 'text-gallery-muted hover:text-gallery-text'}
-                  `}
-                >
-                  {collection}
-                  {collection !== 'all' && galleryData && (
-                    <span className="ml-2 text-gallery-border">
-                      {galleryData.images.filter(img => img.collection === collection).length}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+    <TimeThemeProvider>
+      <CustomCursor />
+      <AmbientAudio />
+
+      <main className="min-h-screen bg-gallery-black">
+        {/* Landing hero — shown first, dissolves on enter */}
+        <AnimatePresence>
+          {appState === 'landing' && galleryData && heroImages.length > 0 && (
+            <LandingHero
+              images={heroImages}
+              storageBaseUrl={galleryData.storageBaseUrl}
+              onEnter={handleEnterGallery}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Loading state */}
+        {loading && (
+          <div className="flex items-center justify-center h-screen">
+            <div className="spinner" />
           </div>
-        </nav>
-      )}
-
-      {/* Loading state */}
-      {loading && (
-        <div className="flex items-center justify-center h-[60vh]">
-          <div className="spinner" />
-        </div>
-      )}
-
-      {/* Gallery grid */}
-      {!loading && galleryData && (
-        <Gallery
-          images={filteredImages}
-          onImageClick={handleImageClick}
-          storageBaseUrl={galleryData.storageBaseUrl}
-        />
-      )}
-
-      {/* Empty state */}
-      {!loading && (!galleryData || filteredImages.length === 0) && (
-        <div className="flex flex-col items-center justify-center h-[60vh] text-center px-6">
-          <p className="font-display text-2xl text-gallery-muted italic mb-4">
-            No photographs yet
-          </p>
-          <p className="text-sm text-gallery-muted max-w-md">
-            Run the processing script to add images to your gallery.
-          </p>
-        </div>
-      )}
-
-      {/* Full-screen image viewer */}
-      <AnimatePresence>
-        {selectedImage && (
-          <ImageViewer
-            image={selectedImage}
-            onClose={handleCloseViewer}
-            onNavigate={handleNavigate}
-            storageBaseUrl={galleryData?.storageBaseUrl || ''}
-          />
         )}
-      </AnimatePresence>
 
-      {/* Footer */}
-      <footer className="border-t border-gallery-border mt-20">
-        <div className="max-w-[2000px] mx-auto px-6 py-12">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="text-center md:text-left">
-              <p className="font-display text-xl text-gallery-light">
-                {galleryData?.title || 'Gallery'}
-              </p>
-              <p className="text-xs text-gallery-muted mt-1">
-                {filteredImages.length} photographs
-              </p>
-            </div>
-            <div className="flex gap-8">
-              <a 
-                href="/about" 
-                className="text-xs uppercase tracking-widest text-gallery-muted hover:text-gallery-text transition-colors"
+        {/* Gallery content — visible after landing */}
+        {appState === 'gallery' && galleryData && (
+          <motion.div
+            ref={galleryTopRef}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.5, delay: 0.3 }}
+          >
+            {/* Gallery header */}
+            <header className="relative py-20 md:py-32 px-6 text-center">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 1, delay: 0.5 }}
               >
-                About
-              </a>
-              <a 
-                href="/contact" 
-                className="text-xs uppercase tracking-widest text-gallery-muted hover:text-gallery-text transition-colors"
+                <h1 className="font-display text-4xl md:text-6xl lg:text-7xl font-light text-gallery-white tracking-wide">
+                  {galleryData.title}
+                </h1>
+                {galleryData.subtitle && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.8, delay: 0.8 }}
+                    className="mt-4 font-mono text-xs tracking-[0.3em] uppercase text-gallery-muted"
+                  >
+                    {galleryData.subtitle}
+                  </motion.p>
+                )}
+              </motion.div>
+
+              {/* Decorative line */}
+              <motion.div
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: 1 }}
+                transition={{ duration: 1.5, delay: 1, ease: [0.4, 0, 0.2, 1] }}
+                className="mt-12 mx-auto w-24 h-px bg-gradient-to-r from-transparent via-gallery-border to-transparent"
+              />
+
+              {/* Scroll hint */}
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 2, duration: 1 }}
+                className="mt-16 font-mono text-[9px] tracking-[0.4em] uppercase text-gallery-muted"
               >
-                Contact
-              </a>
-            </div>
-          </div>
-          <div className="mt-8 pt-8 border-t border-gallery-border text-center">
-            <p className="font-mono text-[10px] text-gallery-border tracking-wider">
-              PERMANENT ARCHIVE — ESTABLISHED {new Date().getFullYear()}
+                Scroll to explore
+              </motion.p>
+            </header>
+
+            {/* Scroll gallery */}
+            <ScrollGallery
+              images={galleryData.images}
+              onImageClick={handleImageClick}
+              storageBaseUrl={galleryData.storageBaseUrl}
+            />
+
+            {/* End credits */}
+            <EndCredits onReturnToTop={handleReturnToTop} />
+
+            {/* Minimal footer */}
+            <footer className="py-8 text-center">
+              <div className="flex justify-center gap-8 mb-6">
+                <a
+                  href="/about"
+                  className="font-mono text-[10px] uppercase tracking-[0.3em] text-gallery-muted hover:text-gallery-text transition-colors duration-300"
+                  data-cursor-type="clickable"
+                >
+                  About
+                </a>
+                <a
+                  href="/about#contact"
+                  className="font-mono text-[10px] uppercase tracking-[0.3em] text-gallery-muted hover:text-gallery-text transition-colors duration-300"
+                  data-cursor-type="clickable"
+                >
+                  Contact
+                </a>
+              </div>
+              <p className="font-mono text-[9px] text-gallery-border tracking-wider">
+                &copy; {new Date().getFullYear()} EDWARD MA &middot; ALL RIGHTS RESERVED
+              </p>
+            </footer>
+          </motion.div>
+        )}
+
+        {/* Empty state */}
+        {!loading && (!galleryData || galleryData.images.length === 0) && (
+          <div className="flex flex-col items-center justify-center h-screen text-center px-6">
+            <p className="font-display text-2xl text-gallery-muted italic mb-4">
+              No photographs yet
+            </p>
+            <p className="text-sm text-gallery-muted max-w-md">
+              Run the processing script to add images to your gallery.
             </p>
           </div>
-        </div>
-      </footer>
-    </main>
+        )}
+
+        {/* Full-screen image viewer */}
+        <AnimatePresence>
+          {selectedImage && (
+            <ImageViewer
+              image={selectedImage}
+              onClose={handleCloseViewer}
+              onNavigate={handleNavigate}
+              storageBaseUrl={galleryData?.storageBaseUrl || ''}
+            />
+          )}
+        </AnimatePresence>
+      </main>
+    </TimeThemeProvider>
   )
 }
