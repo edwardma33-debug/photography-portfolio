@@ -19,7 +19,19 @@
       "Bash(npx vercel:*)",
       "Bash(npm run build:*)",
       "Bash(git commit:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(node -e \"const d=require\\(''./public/data/gallery.json''\\); console.log\\(''Total:'', d.images.length\\); d.images.forEach\\(i => console.log\\(''  ''+i.id+'': ''+i.title+'' \\(''+i.width+''x''+i.height+''\\) ''+\\(i.collection||''no collection''\\)\\)\\)\")",
+      "WebFetch(domain:www.levonbiss.com)",
+      "WebFetch(domain:www.scottsnyderphoto.com)",
+      "WebFetch(domain:dribbble.com)",
+      "Bash(npx next:*)",
+      "Bash(command -v node)",
+      "Read(//c/Program Files/nodejs/**)",
+      "Read(//c/Users/cley/AppData/Roaming/**)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs\")",
+      "Bash(node ./node_modules/.bin/next build)",
+      "Bash(node node_modules/next/dist/bin/next build)",
+      "Bash(npm list:*)"
     ]
   }
 }

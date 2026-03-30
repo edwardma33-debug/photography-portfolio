@@ -88,7 +88,7 @@ export default function Home() {
   return (
     <TimeThemeProvider>
       <CustomCursor />
-      <AmbientAudio />
+      <AmbientAudio autoPlay={appState === 'gallery'} />
 
       <main className="min-h-screen bg-gallery-black">
         {/* Landing hero — shown first, dissolves on enter */}
