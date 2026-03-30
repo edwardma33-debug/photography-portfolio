@@ -27,26 +27,27 @@ export default function AmbientAudio() {
     return () => clearTimeout(timer)
   }, [])
 
-  // Get frequencies based on time period — different moods for different times
+  // Get frequencies based on time period — very low, barely audible undertones
   const getFrequencies = useCallback((p: string) => {
+    // All frequencies are sub-bass to low range — felt more than heard
     switch (p) {
       case 'dawn':
-        return { f1: 65.41, f2: 98.00, f3: 130.81, filterFreq: 400, noiseVol: 0.008 }    // C2, G2, C3 — hopeful
+        return { f1: 40, f2: 60, f3: 80, filterFreq: 120, noiseVol: 0.004, padVol: 0.015 }
       case 'morning':
-        return { f1: 73.42, f2: 110.00, f3: 146.83, filterFreq: 500, noiseVol: 0.006 }    // D2, A2, D3 — bright
+        return { f1: 45, f2: 67, f3: 90, filterFreq: 140, noiseVol: 0.003, padVol: 0.012 }
       case 'midday':
-        return { f1: 82.41, f2: 123.47, f3: 164.81, filterFreq: 600, noiseVol: 0.005 }    // E2, B2, E3 — clear
+        return { f1: 50, f2: 75, f3: 100, filterFreq: 150, noiseVol: 0.002, padVol: 0.010 }
       case 'afternoon':
-        return { f1: 73.42, f2: 110.00, f3: 146.83, filterFreq: 450, noiseVol: 0.006 }    // D2, A2, D3 — warm
+        return { f1: 45, f2: 67, f3: 90, filterFreq: 130, noiseVol: 0.003, padVol: 0.012 }
       case 'golden':
-        return { f1: 65.41, f2: 82.41, f3: 130.81, filterFreq: 350, noiseVol: 0.008 }     // C2, E2, C3 — golden
+        return { f1: 40, f2: 55, f3: 80, filterFreq: 110, noiseVol: 0.004, padVol: 0.015 }
       case 'sunset':
-        return { f1: 61.74, f2: 92.50, f3: 123.47, filterFreq: 300, noiseVol: 0.009 }     // B1, Gb2, B2 — melancholic
+        return { f1: 38, f2: 52, f3: 76, filterFreq: 100, noiseVol: 0.005, padVol: 0.015 }
       case 'blueHour':
-        return { f1: 55.00, f2: 82.41, f3: 110.00, filterFreq: 280, noiseVol: 0.010 }     // A1, E2, A2 — contemplative
+        return { f1: 35, f2: 50, f3: 70, filterFreq: 90, noiseVol: 0.005, padVol: 0.018 }
       case 'night':
       default:
-        return { f1: 49.00, f2: 73.42, f3: 98.00, filterFreq: 250, noiseVol: 0.012 }      // G1, D2, G2 — deep, quiet
+        return { f1: 32, f2: 48, f3: 64, filterFreq: 80, noiseVol: 0.006, padVol: 0.020 }
     }
   }, [])
 
@@ -62,14 +63,21 @@ export default function AmbientAudio() {
 
     const freqs = getFrequencies(period)
 
-    // Low-pass filter for warmth
+    // Heavy low-pass filter — cuts everything harsh
     const filter = ctx.createBiquadFilter()
     filter.type = 'lowpass'
     filter.frequency.value = freqs.filterFreq
-    filter.Q.value = 0.7
+    filter.Q.value = 0.3 // Very gentle roll-off, no resonance
     filter.connect(masterGain)
 
-    // Pad oscillators — sine waves for pure, meditative tones
+    // Second filter stage for extra smoothness
+    const filter2 = ctx.createBiquadFilter()
+    filter2.type = 'lowpass'
+    filter2.frequency.value = freqs.filterFreq * 1.5
+    filter2.Q.value = 0.3
+    filter2.connect(filter)
+
+    // Pad oscillators — sub-bass sine waves, barely audible
     const createPad = (freq: number, detune: number = 0): OscillatorNode => {
       const osc = ctx.createOscillator()
       osc.type = 'sine'
@@ -77,49 +85,61 @@ export default function AmbientAudio() {
       osc.detune.value = detune
 
       const gain = ctx.createGain()
-      gain.gain.value = 0.06
+      gain.gain.value = freqs.padVol // Much quieter
 
       osc.connect(gain)
-      gain.connect(filter)
+      gain.connect(filter2)
       osc.start()
       return osc
     }
 
-    const pad1 = createPad(freqs.f1, -3)  // Slight detune for warmth
-    const pad2 = createPad(freqs.f2, 5)
-    const pad3 = createPad(freqs.f3, -2)
+    const pad1 = createPad(freqs.f1, -2)
+    const pad2 = createPad(freqs.f2, 3)
+    const pad3 = createPad(freqs.f3, -1)
 
-    // LFO for gentle movement — modulates filter frequency
+    // Very slow LFO — gentle breathing, not wobble
     const lfo = ctx.createOscillator()
     lfo.type = 'sine'
-    lfo.frequency.value = 0.05 // Very slow oscillation
+    lfo.frequency.value = 0.02 // One cycle every 50 seconds
     const lfoGain = ctx.createGain()
-    lfoGain.gain.value = 50 // Subtle filter movement
+    lfoGain.gain.value = 15 // Very subtle filter movement
     lfo.connect(lfoGain)
     lfoGain.connect(filter.frequency)
     lfo.start()
 
-    // Filtered noise — room tone / atmosphere
-    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate)
+    // Filtered noise — like air conditioning hum, room presence
+    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 6, ctx.sampleRate)
     const noiseData = noiseBuffer.getChannelData(0)
     for (let i = 0; i < noiseData.length; i++) {
-      noiseData[i] = (Math.random() * 2 - 1) * 0.5
+      // Brown noise (smoother than white) — integrate white noise
+      noiseData[i] = i === 0
+        ? (Math.random() * 2 - 1) * 0.01
+        : noiseData[i - 1] + (Math.random() * 2 - 1) * 0.02
+      // Clamp to prevent drift
+      noiseData[i] = Math.max(-1, Math.min(1, noiseData[i]))
     }
 
     const noiseSource = ctx.createBufferSource()
     noiseSource.buffer = noiseBuffer
     noiseSource.loop = true
 
-    const noiseFilter = ctx.createBiquadFilter()
-    noiseFilter.type = 'lowpass'
-    noiseFilter.frequency.value = 200 // Very muffled
-    noiseFilter.Q.value = 0.5
+    // Triple-filtered noise for extreme softness
+    const noiseFilter1 = ctx.createBiquadFilter()
+    noiseFilter1.type = 'lowpass'
+    noiseFilter1.frequency.value = 80
+    noiseFilter1.Q.value = 0.2
+
+    const noiseFilter2 = ctx.createBiquadFilter()
+    noiseFilter2.type = 'lowpass'
+    noiseFilter2.frequency.value = 120
+    noiseFilter2.Q.value = 0.2
 
     const noiseGain = ctx.createGain()
     noiseGain.gain.value = freqs.noiseVol
 
-    noiseSource.connect(noiseFilter)
-    noiseFilter.connect(noiseGain)
+    noiseSource.connect(noiseFilter1)
+    noiseFilter1.connect(noiseFilter2)
+    noiseFilter2.connect(noiseGain)
     noiseGain.connect(masterGain)
     noiseSource.start()
 
@@ -180,7 +200,7 @@ export default function AmbientAudio() {
     if (!nodes || !ctx || !isPlaying) return
 
     const freqs = getFrequencies(period)
-    const t = ctx.currentTime + 10 // Transition over 10 seconds
+    const t = ctx.currentTime + 20 // Very slow transition over 20 seconds
 
     nodes.pad1.frequency.linearRampToValueAtTime(freqs.f1, t)
     nodes.pad2.frequency.linearRampToValueAtTime(freqs.f2, t)
