@@ -72,7 +72,6 @@ const MELODY_PHRASE_3: [string, number][] = [
   ['', 4],          // Long rest before repeat
 ]
 
-// Full melody is all phrases in sequence, then loops
 const FULL_MELODY = [...MELODY_PHRASE_1, ...MELODY_PHRASE_2, ...MELODY_PHRASE_3]
 
 interface AmbientAudioProps {
@@ -83,12 +82,13 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
   const { theme } = useTimeTheme()
   const [isPlaying, setIsPlaying] = useState(false)
   const [showHint, setShowHint] = useState(true)
-  const [loaded, setLoaded] = useState(false)
   const hasAutoPlayed = useRef(false)
   const audioContextRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
+  const mixNodeRef = useRef<GainNode | null>(null)
   const pianoRef = useRef<any>(null)
   const playingRef = useRef(false)
+  const initializingRef = useRef(false)
   const bassTimeoutRef = useRef<NodeJS.Timeout>()
   const melodyTimeoutRef = useRef<NodeJS.Timeout>()
 
@@ -97,21 +97,8 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
     return () => clearTimeout(timer)
   }, [])
 
-  // Load the piano soundfont
-  const loadPiano = useCallback(async (ctx: AudioContext, destination: AudioNode) => {
-    if (pianoRef.current) return pianoRef.current
-
-    const piano = await Soundfont.instrument(ctx, 'acoustic_grand_piano', {
-      destination,
-      gain: 1,
-    })
-    pianoRef.current = piano
-    setLoaded(true)
-    return piano
-  }, [])
-
   // Schedule the bass loop
-  const playBass = useCallback((piano: any) => {
+  const startBass = useCallback((piano: any, ctx: AudioContext) => {
     let noteIndex = 0
 
     const scheduleNext = () => {
@@ -119,7 +106,7 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
 
       const [note, dur] = BASS_PATTERN[noteIndex % BASS_PATTERN.length]
       if (note) {
-        piano.play(note, undefined, {
+        piano.play(note, ctx.currentTime, {
           duration: dur * TEMPO * 0.9,
           gain: 0.35,
         })
@@ -132,7 +119,7 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
   }, [])
 
   // Schedule the melody loop
-  const playMelody = useCallback((piano: any) => {
+  const startMelody = useCallback((piano: any, ctx: AudioContext) => {
     let noteIndex = 0
 
     const scheduleNext = () => {
@@ -140,7 +127,7 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
 
       const [note, dur] = FULL_MELODY[noteIndex % FULL_MELODY.length]
       if (note) {
-        piano.play(note, undefined, {
+        piano.play(note, ctx.currentTime, {
           duration: dur * TEMPO * 0.85,
           gain: 0.55,
         })
@@ -152,84 +139,114 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
     scheduleNext()
   }, [])
 
+  const initAudioGraph = useCallback(() => {
+    const ctx = new AudioContext()
+    audioContextRef.current = ctx
+
+    // Master gain for fade in/out
+    const masterGain = ctx.createGain()
+    masterGain.gain.value = 0
+    masterGain.connect(ctx.destination)
+    masterGainRef.current = masterGain
+
+    // Reverb via delay lines
+    const delay1 = ctx.createDelay(1)
+    delay1.delayTime.value = 0.15
+    const delay1Gain = ctx.createGain()
+    delay1Gain.gain.value = 0.18
+
+    const delay2 = ctx.createDelay(1)
+    delay2.delayTime.value = 0.35
+    const delay2Gain = ctx.createGain()
+    delay2Gain.gain.value = 0.08
+
+    const delayFilter = ctx.createBiquadFilter()
+    delayFilter.type = 'lowpass'
+    delayFilter.frequency.value = 1500
+    delayFilter.Q.value = 0.3
+
+    // Dry signal
+    const dryGain = ctx.createGain()
+    dryGain.gain.value = 0.75
+    dryGain.connect(masterGain)
+
+    // Wet signals
+    delay1.connect(delay1Gain)
+    delay1Gain.connect(delayFilter)
+    delay2.connect(delay2Gain)
+    delay2Gain.connect(delayFilter)
+    delayFilter.connect(masterGain)
+
+    // Mix node — piano goes here, splits to dry + delays
+    const mixNode = ctx.createGain()
+    mixNode.gain.value = 1
+    mixNode.connect(dryGain)
+    mixNode.connect(delay1)
+    mixNode.connect(delay2)
+    mixNodeRef.current = mixNode
+
+    return { ctx, masterGain, mixNode }
+  }, [])
+
   const initAndPlay = useCallback(async () => {
-    if (!audioContextRef.current) {
-      const ctx = new AudioContext()
-      audioContextRef.current = ctx
+    // Prevent double-init
+    if (initializingRef.current) return
+    initializingRef.current = true
 
-      // Master gain for fade in/out
-      const masterGain = ctx.createGain()
-      masterGain.gain.value = 0
-      masterGain.connect(ctx.destination)
-      masterGainRef.current = masterGain
+    try {
+      let ctx = audioContextRef.current
+      let piano = pianoRef.current
 
-      // Reverb via delay lines
-      const delay1 = ctx.createDelay(1)
-      delay1.delayTime.value = 0.15
-      const delay1Gain = ctx.createGain()
-      delay1Gain.gain.value = 0.18
+      if (!ctx) {
+        // First time — build the audio graph
+        const graph = initAudioGraph()
+        ctx = graph.ctx
 
-      const delay2 = ctx.createDelay(1)
-      delay2.delayTime.value = 0.35
-      const delay2Gain = ctx.createGain()
-      delay2Gain.gain.value = 0.08
+        // Load real piano samples — connects directly to our mix node
+        piano = await Soundfont.instrument(ctx, 'acoustic_grand_piano', {
+          destination: graph.mixNode,
+        })
+        pianoRef.current = piano
 
-      // Delay filter — darker echoes
-      const delayFilter = ctx.createBiquadFilter()
-      delayFilter.type = 'lowpass'
-      delayFilter.frequency.value = 1500
-      delayFilter.Q.value = 0.3
-
-      // Dry signal
-      const dryGain = ctx.createGain()
-      dryGain.gain.value = 0.75
-      dryGain.connect(masterGain)
-
-      // Wet signals
-      delay1.connect(delay1Gain)
-      delay1Gain.connect(delayFilter)
-      delay2.connect(delay2Gain)
-      delay2Gain.connect(delayFilter)
-      delayFilter.connect(masterGain)
-
-      // Mix node — piano samples go here, split to dry + delays
-      const mixNode = ctx.createGain()
-      mixNode.gain.value = 1
-      mixNode.connect(dryGain)
-      mixNode.connect(delay1)
-      mixNode.connect(delay2)
-
-      // Load real piano samples
-      const piano = await loadPiano(ctx, mixNode)
-
-      // Start playing
-      playingRef.current = true
-      masterGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
-      playBass(piano)
-      playMelody(piano)
-    } else {
-      const ctx = audioContextRef.current
-      await ctx.resume()
-      playingRef.current = true
-      if (masterGainRef.current) {
-        masterGainRef.current.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
+        // Fade in
+        graph.masterGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
+      } else {
+        // Resume existing context
+        await ctx.resume()
+        if (masterGainRef.current) {
+          masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
+          masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, ctx.currentTime)
+          masterGainRef.current.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
+        }
       }
-      const piano = pianoRef.current
-      if (piano) {
-        playBass(piano)
-        playMelody(piano)
+
+      if (!piano) {
+        console.warn('Piano failed to load')
+        initializingRef.current = false
+        return
       }
+
+      // Start the sequences
+      playingRef.current = true
+      startBass(piano, ctx)
+      startMelody(piano, ctx)
+    } catch (err) {
+      console.error('Audio init failed:', err)
+    } finally {
+      initializingRef.current = false
     }
-  }, [loadPiano, playBass, playMelody])
+  }, [initAudioGraph, startBass, startMelody])
 
   const togglePlay = useCallback(() => {
     if (isPlaying) {
-      // Fade out
+      // Stop
       playingRef.current = false
       if (bassTimeoutRef.current) clearTimeout(bassTimeoutRef.current)
       if (melodyTimeoutRef.current) clearTimeout(melodyTimeoutRef.current)
       const ctx = audioContextRef.current
       if (ctx && masterGainRef.current) {
+        masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
+        masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, ctx.currentTime)
         masterGainRef.current.gain.linearRampToValueAtTime(0, ctx.currentTime + 2)
         setTimeout(() => ctx.suspend(), 2200)
       }
@@ -240,7 +257,7 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
     }
   }, [isPlaying, initAndPlay])
 
-  // Auto-play when entering gallery (triggered by user gesture on landing page)
+  // Auto-play when entering gallery
   useEffect(() => {
     if (autoPlay && !hasAutoPlayed.current && !isPlaying) {
       hasAutoPlayed.current = true
