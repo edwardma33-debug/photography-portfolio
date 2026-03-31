@@ -111,13 +111,15 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     return buffers
   }, [])
 
-  // Play a single note sample
+  // Play a single note with sustain pedal effect
+  // Notes ring well beyond their beat duration, fading naturally
   const playNote = useCallback((
     ctx: AudioContext,
     destination: AudioNode,
     note: string,
     duration: number,
     gain: number,
+    isBass: boolean,
   ) => {
     if (!note) return
     const buffer = buffersRef.current[note]
@@ -130,14 +132,22 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     const now = ctx.currentTime
     const noteLen = duration * TEMPO
 
-    gainNode.gain.setValueAtTime(gain, now)
-    gainNode.gain.setValueAtTime(gain, now + noteLen * 0.7)
-    gainNode.gain.linearRampToValueAtTime(0, now + noteLen)
+    // Sustain pedal effect: let notes ring far beyond their beat length
+    // Bass notes sustain longer for warmth, melody notes overlap generously
+    const sustainTime = isBass ? 4.0 : 3.0
+    const totalLen = noteLen + sustainTime
+
+    // Soft attack (avoid click), hold at volume, then long gentle decay
+    gainNode.gain.setValueAtTime(0, now)
+    gainNode.gain.linearRampToValueAtTime(gain, now + 0.02) // soft attack
+    gainNode.gain.setValueAtTime(gain, now + noteLen * 0.6) // hold
+    gainNode.gain.exponentialRampToValueAtTime(gain * 0.3, now + noteLen) // start fading
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + totalLen) // long tail
 
     source.connect(gainNode)
     gainNode.connect(destination)
     source.start(now)
-    source.stop(now + noteLen + 0.05)
+    source.stop(now + totalLen + 0.1)
   }, [])
 
   // Schedule bass loop
@@ -147,7 +157,7 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     const scheduleNext = () => {
       if (!playingRef.current) return
       const [note, dur] = BASS_PATTERN[noteIndex % BASS_PATTERN.length]
-      playNote(ctx, dest, note, dur, 0.3)
+      playNote(ctx, dest, note, dur, 0.3, true)
       noteIndex++
       bassTimeoutRef.current = setTimeout(scheduleNext, dur * TEMPO * 1000)
     }
@@ -161,7 +171,7 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     const scheduleNext = () => {
       if (!playingRef.current) return
       const [note, dur] = FULL_MELODY[noteIndex % FULL_MELODY.length]
-      playNote(ctx, dest, note, dur, 0.5)
+      playNote(ctx, dest, note, dur, 0.5, false)
       noteIndex++
       melodyTimeoutRef.current = setTimeout(scheduleNext, dur * TEMPO * 1000)
     }
