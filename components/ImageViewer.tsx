@@ -89,22 +89,23 @@ export default function ImageViewer({
         // Force a resize to ensure proper rendering
         setTimeout(() => {
           if (osdRef.current && viewerRef.current) {
-            const rect = viewerRef.current.getBoundingClientRect()
-            console.log('Viewer container size:', rect.width, 'x', rect.height)
             osdRef.current.viewport.resize()
 
-            // Set default zoom to 67% of home (fit-to-screen) zoom
+            // Portrait: zoom out more so full image is visible
+            // Landscape: closer in to appreciate detail
+            const isPortrait = image.aspectRatio < 1
+            const zoomFactor = isPortrait ? 0.45 : 0.67
             const homeZoom = osdRef.current.viewport.getHomeZoom()
-            const targetZoom = homeZoom * 0.67
+            const targetZoom = homeZoom * zoomFactor
             osdRef.current.viewport.zoomTo(targetZoom, undefined, true)
           }
         }, 100)
 
         const homeZoom = osdRef.current.viewport.getHomeZoom()
-        // Store home zoom for percentage calculation
+        const isPortrait = image.aspectRatio < 1
+        const initialFactor = isPortrait ? 0.45 : 0.67
         ;(osdRef.current as any).homeZoom = homeZoom
-        setZoomLevel(0.67) // Initial display at 67%
-        console.log('Home zoom:', homeZoom, 'Target zoom: 67%')
+        setZoomLevel(initialFactor)
       }
     })
 
