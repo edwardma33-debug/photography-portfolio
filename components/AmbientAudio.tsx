@@ -5,48 +5,82 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTimeTheme } from './TimeThemeProvider'
 
 // Satie — Gnossienne No.1 (public domain)
-// Notes as [noteName, duration in beats]
-// '' = rest
+// Encoded as [note, beats, velocity (0-1), rubato (timing stretch)]
+// '' = rest. Velocity and rubato give each note human expression.
 
-const TEMPO = 0.7 // seconds per beat
+const TEMPO = 0.8 // seconds per beat — slightly slower, more contemplative
 
-// Bass ostinato (left hand) — F minor arpeggio
-const BASS_PATTERN: [string, number][] = [
-  ['F2', 1], ['C3', 1], ['F3', 1], ['Ab3', 1], ['F3', 1], ['C3', 1],
+// Bass ostinato (left hand) — gentle, rolling F minor arpeggio
+// Lower velocity, each note slightly different weight
+const BASS_PATTERN: [string, number, number, number][] = [
+  ['F2',  1, 0.22, 1.0],
+  ['C3',  1, 0.18, 0.97],
+  ['F3',  1, 0.20, 1.0],
+  ['Ab3', 1, 0.17, 1.03],  // linger slightly
+  ['F3',  1, 0.19, 0.98],
+  ['C3',  1, 0.16, 1.02],  // softest, slight rubato
 ]
 
-// Melody phrases (right hand)
-const MELODY_PHRASE_1: [string, number][] = [
-  ['', 6], ['', 6],
-  ['Bb4', 3], ['Ab4', 1], ['G4', 1], ['F4', 1],
-  ['Eb4', 2], ['F4', 2], ['', 2],
-  ['Bb4', 3], ['Ab4', 1], ['G4', 1], ['F4', 1],
-  ['F4', 2], ['Eb4', 2], ['Db4', 2],
+// Melody with dynamic shaping — velocity creates natural phrasing
+// Rubato > 1 = linger, < 1 = push forward
+const MELODY_PHRASE_1: [string, number, number, number][] = [
+  ['', 6, 0, 1.0],           // Rest — bass alone
+  ['', 6, 0, 1.0],           // Another bar
+  ['Bb4', 3, 0.52, 1.08],    // Opening — tender, lingering
+  ['Ab4', 1, 0.40, 0.95],    // descending, softer
+  ['G4',  1, 0.38, 0.93],    // pushing forward
+  ['F4',  1, 0.35, 1.0],
+  ['Eb4', 2, 0.42, 1.05],    // slight emphasis, breathe
+  ['F4',  2, 0.38, 1.0],
+  ['', 2, 0, 1.15],          // Longer pause — breathing
+  ['Bb4', 3, 0.55, 1.06],    // Return — slightly louder
+  ['Ab4', 1, 0.42, 0.96],
+  ['G4',  1, 0.40, 0.94],
+  ['F4',  1, 0.36, 1.0],
+  ['F4',  2, 0.38, 1.04],    // held, gentle
+  ['Eb4', 2, 0.34, 1.0],     // fading
+  ['Db4', 2, 0.30, 1.10],    // softest, ritardando
 ]
 
-const MELODY_PHRASE_2: [string, number][] = [
-  ['Eb4', 3], ['F4', 1], ['Ab4', 1], ['G4', 1],
-  ['F4', 2], ['Eb4', 2], ['Db4', 2],
-  ['C4', 3], ['Db4', 1], ['Eb4', 2],
-  ['F4', 3], ['', 3],
+const MELODY_PHRASE_2: [string, number, number, number][] = [
+  ['Eb4', 3, 0.44, 1.04],    // New phrase — slightly brighter
+  ['F4',  1, 0.40, 0.96],
+  ['Ab4', 1, 0.48, 0.94],    // climbing, more energy
+  ['G4',  1, 0.44, 1.0],
+  ['F4',  2, 0.40, 1.02],
+  ['Eb4', 2, 0.36, 1.0],     // settling
+  ['Db4', 2, 0.32, 1.06],    // gentle
+  ['C4',  3, 0.45, 1.08],    // arrival point — warm
+  ['Db4', 1, 0.35, 0.97],
+  ['Eb4', 2, 0.38, 1.0],
+  ['F4',  3, 0.42, 1.12],    // resolving — linger
+  ['', 3, 0, 1.2],           // Long breath
 ]
 
-const MELODY_PHRASE_3: [string, number][] = [
-  ['C5', 3], ['Bb4', 1], ['Ab4', 1], ['G4', 1],
-  ['Ab4', 2], ['Bb4', 2], ['Ab4', 2],
-  ['G4', 1], ['F4', 1], ['Eb4', 2],
-  ['Db4', 2], ['C4', 3], ['', 4],
+const MELODY_PHRASE_3: [string, number, number, number][] = [
+  ['C5',  3, 0.58, 1.06],    // Climax — highest, strongest
+  ['Bb4', 1, 0.50, 0.95],    // cascading down
+  ['Ab4', 1, 0.46, 0.93],
+  ['G4',  1, 0.42, 1.0],
+  ['Ab4', 2, 0.44, 1.04],    // slight swell
+  ['Bb4', 2, 0.48, 1.02],
+  ['Ab4', 2, 0.40, 1.0],
+  ['G4',  1, 0.36, 0.98],    // diminuendo
+  ['F4',  1, 0.33, 0.96],
+  ['Eb4', 2, 0.30, 1.04],    // very soft
+  ['Db4', 2, 0.26, 1.08],    // almost whispering
+  ['C4',  3, 0.32, 1.15],    // final note — long ritardando
+  ['', 4, 0, 1.3],           // Very long pause before repeat
 ]
 
 const FULL_MELODY = [...MELODY_PHRASE_1, ...MELODY_PHRASE_2, ...MELODY_PHRASE_3]
 
-// All unique notes we need to load
+// All unique notes
 const ALL_NOTES = Array.from(new Set([
   ...BASS_PATTERN.map(([n]) => n),
   ...FULL_MELODY.map(([n]) => n),
 ].filter(Boolean)))
 
-// Individual note MP3 files from soundfont CDN (~15 small files instead of one 3MB blob)
 const NOTE_URL_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/acoustic_grand_piano-mp3'
 
 interface AmbientAudioProps {
@@ -67,8 +101,6 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
   const initializingRef = useRef(false)
   const bassTimeoutRef = useRef<NodeJS.Timeout>()
   const melodyTimeoutRef = useRef<NodeJS.Timeout>()
-  // Keep a live reference to the sharedAudioContext prop so cleanup
-  // always sees the latest value (avoids stale closure from mount-time null)
   const sharedCtxRef = useRef(sharedAudioContext)
   sharedCtxRef.current = sharedAudioContext
 
@@ -79,14 +111,11 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
 
   // Load individual piano samples
   const loadSamples = useCallback(async (ctx: AudioContext) => {
-    // Only skip if ALL samples are already loaded (not just "some")
     if (Object.keys(buffersRef.current).length === ALL_NOTES.length) return buffersRef.current
 
     const buffers: Record<string, AudioBuffer> = {}
 
-    // Fetch each note as an individual small MP3 file
     await Promise.all(ALL_NOTES.map(async (note) => {
-      // Reuse already-loaded buffers (partial reload for failed ones)
       if (buffersRef.current[note]) {
         buffers[note] = buffersRef.current[note]
         return
@@ -94,34 +123,29 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       try {
         const url = `${NOTE_URL_BASE}/${encodeURIComponent(note)}.mp3`
         const response = await fetch(url)
-        if (!response.ok) {
-          console.warn(`Failed to fetch note ${note}: ${response.status}`)
-          return
-        }
+        if (!response.ok) return
         const arrayBuffer = await response.arrayBuffer()
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
         buffers[note] = audioBuffer
       } catch (err) {
-        console.warn(`Failed to decode note ${note}:`, err)
+        console.warn(`Failed to load note ${note}:`, err)
       }
     }))
 
-    console.log(`Loaded ${Object.keys(buffers).length}/${ALL_NOTES.length} piano samples`)
     buffersRef.current = buffers
     return buffers
   }, [])
 
-  // Play a single note with sustain pedal effect
-  // Notes ring well beyond their beat duration, fading naturally
+  // Play a note like a concert pianist — with sustain pedal, dynamic touch, humanized timing
   const playNote = useCallback((
     ctx: AudioContext,
     destination: AudioNode,
     note: string,
     duration: number,
-    gain: number,
+    velocity: number,
     isBass: boolean,
   ) => {
-    if (!note) return
+    if (!note || velocity === 0) return
     const buffer = buffersRef.current[note]
     if (!buffer) return
 
@@ -132,100 +156,118 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     const now = ctx.currentTime
     const noteLen = duration * TEMPO
 
-    // Sustain pedal effect: let notes ring far beyond their beat length
-    // Bass notes sustain longer for warmth, melody notes overlap generously
-    const sustainTime = isBass ? 4.0 : 3.0
-    const totalLen = noteLen + sustainTime
+    // Humanize velocity slightly (±8%)
+    const humanVel = velocity * (0.92 + Math.random() * 0.16)
 
-    // Soft attack (avoid click), hold at volume, then long gentle decay
+    // Sustain pedal: notes ring 5-8 seconds, creating a wash of sound
+    const sustainTime = isBass ? 6.0 : 5.0
+    // Let the actual sample play for its full natural length
+    const ringTime = Math.min(buffer.duration, noteLen + sustainTime)
+
+    // Concert piano dynamics:
+    // - Soft attack (real hammers don't click)
+    // - Natural sustain at played velocity
+    // - Very gradual fade following the piano's natural decay
     gainNode.gain.setValueAtTime(0, now)
-    gainNode.gain.linearRampToValueAtTime(gain, now + 0.02) // soft attack
-    gainNode.gain.setValueAtTime(gain, now + noteLen * 0.6) // hold
-    gainNode.gain.exponentialRampToValueAtTime(gain * 0.3, now + noteLen) // start fading
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + totalLen) // long tail
+    gainNode.gain.linearRampToValueAtTime(humanVel, now + 0.015) // fast but soft attack
+    // Let the sample's own decay handle most of the envelope
+    // Just add a gentle overall fade so notes don't linger forever
+    gainNode.gain.setValueAtTime(humanVel, now + noteLen * 0.5)
+    gainNode.gain.exponentialRampToValueAtTime(humanVel * 0.6, now + noteLen * 1.2)
+    gainNode.gain.exponentialRampToValueAtTime(humanVel * 0.15, now + ringTime * 0.7)
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + ringTime)
 
     source.connect(gainNode)
     gainNode.connect(destination)
     source.start(now)
-    source.stop(now + totalLen + 0.1)
+    source.stop(now + ringTime + 0.1)
   }, [])
 
-  // Schedule bass loop
+  // Schedule bass with humanized timing
   const startBass = useCallback((ctx: AudioContext, dest: AudioNode) => {
     let noteIndex = 0
 
     const scheduleNext = () => {
       if (!playingRef.current) return
-      const [note, dur] = BASS_PATTERN[noteIndex % BASS_PATTERN.length]
-      playNote(ctx, dest, note, dur, 0.3, true)
+      const [note, dur, vel, rubato] = BASS_PATTERN[noteIndex % BASS_PATTERN.length]
+
+      playNote(ctx, dest, note, dur, vel, true)
       noteIndex++
-      bassTimeoutRef.current = setTimeout(scheduleNext, dur * TEMPO * 1000)
+
+      // Humanize timing: rubato + slight random variation (±30ms)
+      const humanDelay = dur * TEMPO * rubato * 1000 + (Math.random() - 0.5) * 60
+      bassTimeoutRef.current = setTimeout(scheduleNext, Math.max(100, humanDelay))
     }
     scheduleNext()
   }, [playNote])
 
-  // Schedule melody loop
+  // Schedule melody with expressive timing
   const startMelody = useCallback((ctx: AudioContext, dest: AudioNode) => {
     let noteIndex = 0
 
     const scheduleNext = () => {
       if (!playingRef.current) return
-      const [note, dur] = FULL_MELODY[noteIndex % FULL_MELODY.length]
-      playNote(ctx, dest, note, dur, 0.5, false)
+      const [note, dur, vel, rubato] = FULL_MELODY[noteIndex % FULL_MELODY.length]
+
+      playNote(ctx, dest, note, dur, vel, false)
       noteIndex++
-      melodyTimeoutRef.current = setTimeout(scheduleNext, dur * TEMPO * 1000)
+
+      // More rubato in melody — real pianists stretch time expressively
+      // Add ±50ms humanization
+      const humanDelay = dur * TEMPO * rubato * 1000 + (Math.random() - 0.5) * 100
+      melodyTimeoutRef.current = setTimeout(scheduleNext, Math.max(100, humanDelay))
     }
     scheduleNext()
   }, [playNote])
 
   const initAudioGraph = useCallback((ctxOverride?: AudioContext | null) => {
-    // FIX Bug 2: Accept the context as a parameter so we use the live value,
-    // not the stale closure-captured sharedAudioContext (which is null on first render)
     const ctx = ctxOverride || new AudioContext()
     audioContextRef.current = ctx
 
     const masterGain = ctx.createGain()
-    // FIX Bug 1: Explicitly anchor the gain at 0 with setValueAtTime
-    // so the subsequent linearRamp has a defined start point
     masterGain.gain.setValueAtTime(0, ctx.currentTime)
     masterGain.connect(ctx.destination)
     masterGainRef.current = masterGain
 
-    // Delay-based reverb
-    const delay1 = ctx.createDelay(1)
-    delay1.delayTime.value = 0.15
-    const delay1Gain = ctx.createGain()
-    delay1Gain.gain.value = 0.18
+    // Concert hall reverb — 4 delay taps at different times
+    const reverbFilter = ctx.createBiquadFilter()
+    reverbFilter.type = 'lowpass'
+    reverbFilter.frequency.value = 2000
+    reverbFilter.Q.value = 0.3
+    reverbFilter.connect(masterGain)
 
-    const delay2 = ctx.createDelay(1)
-    delay2.delayTime.value = 0.35
-    const delay2Gain = ctx.createGain()
-    delay2Gain.gain.value = 0.08
-
-    const delayFilter = ctx.createBiquadFilter()
-    delayFilter.type = 'lowpass'
-    delayFilter.frequency.value = 1500
-    delayFilter.Q.value = 0.3
-
+    // Dry signal
     const dryGain = ctx.createGain()
-    dryGain.gain.value = 0.75
+    dryGain.gain.value = 0.55
     dryGain.connect(masterGain)
 
-    delay1.connect(delay1Gain)
-    delay1Gain.connect(delayFilter)
-    delay2.connect(delay2Gain)
-    delay2Gain.connect(delayFilter)
-    delayFilter.connect(masterGain)
-
+    // Mix node — all notes go here, splits to dry + reverb taps
     const mixNode = ctx.createGain()
     mixNode.gain.value = 1
     mixNode.connect(dryGain)
-    mixNode.connect(delay1)
-    mixNode.connect(delay2)
+
+    // Create reverb delay network from mix node
+    const taps = [
+      { time: 0.12, gain: 0.22 },  // early reflection
+      { time: 0.28, gain: 0.16 },  // mid
+      { time: 0.48, gain: 0.11 },  // late
+      { time: 0.75, gain: 0.07 },  // very late — concert hall depth
+    ]
+
+    taps.forEach(({ time, gain: g }) => {
+      const delay = ctx.createDelay(1)
+      delay.delayTime.value = time
+      const tapGain = ctx.createGain()
+      tapGain.gain.value = g
+      mixNode.connect(delay)
+      delay.connect(tapGain)
+      tapGain.connect(reverbFilter)
+    })
+
     mixNodeRef.current = mixNode
 
     return { ctx, masterGain, mixNode }
-  }, [])  // No longer depends on sharedAudioContext — it's passed as a parameter
+  }, [])
 
   const initAndPlay = useCallback(async () => {
     if (initializingRef.current) return
@@ -235,57 +277,42 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       let ctx = audioContextRef.current
 
       if (!ctx) {
-        // FIX Bug 2: Read sharedAudioContext from the live ref, not the
-        // potentially-stale prop captured in the closure
         const graph = initAudioGraph(sharedCtxRef.current)
         ctx = graph.ctx
 
-        // Ensure context is running (mobile fix)
         if (ctx.state === 'suspended') {
           await ctx.resume()
         }
-
-        // FIX Bug 5: If context is STILL suspended after resume() (no user gesture),
-        // we can't produce sound. Bail out and let the user click the button instead.
         if (ctx.state === 'suspended') {
-          console.warn('AudioContext is suspended (no user gesture). Sound will start on manual play.')
           initializingRef.current = false
-          return false  // Signal that playback didn't actually start
+          return false
         }
 
-        // Load piano samples
         await loadSamples(ctx)
 
-        // FIX Bug 4: Set playingRef BEFORE starting loops so the first
-        // scheduleNext() callback sees it as true
         playingRef.current = true
-
-        // FIX Bug 1: Anchor gain at 0, then ramp to 1
         graph.masterGain.gain.setValueAtTime(0, ctx.currentTime)
-        graph.masterGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
+        graph.masterGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 4) // slower fade in
         startBass(ctx, graph.mixNode)
         startMelody(ctx, graph.mixNode)
       } else {
-        // Resume existing context
         if (ctx.state === 'suspended') {
           await ctx.resume()
         }
-
-        // FIX Bug 6: Ensure samples are loaded before restarting loops
         await loadSamples(ctx)
 
         playingRef.current = true
         if (masterGainRef.current) {
           masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
           masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, ctx.currentTime)
-          masterGainRef.current.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
+          masterGainRef.current.gain.linearRampToValueAtTime(1, ctx.currentTime + 4)
         }
         if (mixNodeRef.current) {
           startBass(ctx, mixNodeRef.current)
           startMelody(ctx, mixNodeRef.current)
         }
       }
-      return true  // Playback started successfully
+      return true
     } catch (err) {
       console.error('Audio init failed:', err)
       return false
@@ -303,16 +330,13 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       if (ctx && masterGainRef.current) {
         masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
         masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, ctx.currentTime)
-        masterGainRef.current.gain.linearRampToValueAtTime(0, ctx.currentTime + 2)
-        setTimeout(() => ctx.suspend(), 2200)
+        masterGainRef.current.gain.linearRampToValueAtTime(0, ctx.currentTime + 3) // slower fade out
+        setTimeout(() => ctx.suspend(), 3500)
       }
       setIsPlaying(false)
     } else {
-      // FIX Bug 4: Only set isPlaying to true if initAndPlay actually succeeded
       initAndPlay().then((started) => {
-        if (started) {
-          setIsPlaying(true)
-        }
+        if (started) setIsPlaying(true)
       })
     }
   }, [isPlaying, initAndPlay])
@@ -321,11 +345,8 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
   useEffect(() => {
     if (autoPlay && !hasAutoPlayed.current && !isPlaying) {
       hasAutoPlayed.current = true
-      // FIX Bug 4: Only show playing UI if audio actually started
       initAndPlay().then((started) => {
-        if (started) {
-          setIsPlaying(true)
-        }
+        if (started) setIsPlaying(true)
       })
     }
   }, [autoPlay, isPlaying, initAndPlay])
@@ -336,14 +357,11 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       playingRef.current = false
       if (bassTimeoutRef.current) clearTimeout(bassTimeoutRef.current)
       if (melodyTimeoutRef.current) clearTimeout(melodyTimeoutRef.current)
-      // FIX Bug 5: Use the live ref to check the shared context,
-      // not the stale closure-captured prop value (which was null at mount time)
       if (audioContextRef.current && !sharedCtxRef.current) {
-        // Only close if we created it (don't close shared context)
         audioContextRef.current.close()
       }
     }
-  }, [])  // No dependency on sharedAudioContext — we use the ref
+  }, [])
 
   return (
     <div className="fixed bottom-6 left-6 z-50 flex items-center gap-3">
