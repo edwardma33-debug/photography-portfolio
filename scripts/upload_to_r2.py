@@ -2,6 +2,8 @@
 """
 Upload processed images to Cloudflare R2 storage.
 Uses boto3 (S3-compatible API) to upload all image assets.
+Uploads in batches to avoid memory issues with large file counts.
+Skips files that already exist on R2 (by key) for resumability.
 """
 
 import os
@@ -111,6 +113,18 @@ def upload_file(filepath: Path, key: str) -> dict:
             'error': str(e)
         }
 
+def list_existing_keys(prefix: str = '') -> set:
+    """List all existing keys in the R2 bucket."""
+    existing = set()
+    paginator = s3_client.get_paginator('list_objects_v2')
+    try:
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
+            for obj in page.get('Contents', []):
+                existing.add(obj['Key'])
+    except Exception as e:
+        print(f"Warning: Could not list existing keys: {e}")
+    return existing
+
 def collect_files() -> list:
     """Collect all files to upload."""
     files = []
@@ -134,57 +148,16 @@ def collect_files() -> list:
 
     return files
 
-def main():
-    print("=" * 60)
-    print("Cloudflare R2 Upload Script")
-    print("=" * 60)
-    print(f"\nBucket: {R2_BUCKET_NAME}")
-    print(f"Endpoint: {R2_ENDPOINT}")
-
-    # Collect files
-    print("\nCollecting files to upload...")
-    files = collect_files()
-
-    if not files:
-        print("No files found to upload!")
-        return
-
-    # Calculate total size
-    total_size = sum(f[0].stat().st_size for f in files)
-    print(f"Found {len(files)} files ({total_size / (1024*1024*1024):.2f} GB)")
-
-    # Group by directory for progress display
-    by_dir = {}
-    for filepath, key in files:
-        dir_name = key.split('/')[0]
-        by_dir.setdefault(dir_name, []).append((filepath, key))
-
-    print("\nBreakdown:")
-    for dir_name, dir_files in by_dir.items():
-        dir_size = sum(f[0].stat().st_size for f in dir_files)
-        print(f"  {dir_name}/: {len(dir_files)} files ({dir_size / (1024*1024):.1f} MB)")
-
-    # Confirm upload
-    print("\nPress Enter to start upload (Ctrl+C to cancel)...")
-    try:
-        input()
-    except KeyboardInterrupt:
-        print("\nUpload cancelled.")
-        return
-
-    # Upload files with progress
-    print("\nUploading...")
+def upload_batch(batch, batch_num, total_batches, global_offset, total_files):
+    """Upload a batch of files using thread pool."""
     uploaded = 0
     failed = 0
     uploaded_size = 0
 
-    # Use thread pool for parallel uploads
-    max_workers = 8  # Parallel upload threads
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(upload_file, filepath, key): (filepath, key)
-            for filepath, key in files
+            for filepath, key in batch
         }
 
         for i, future in enumerate(as_completed(futures), 1):
@@ -199,26 +172,91 @@ def main():
                 failed += 1
                 status = f"FAILED: {result['error']}"
 
-            # Progress bar
-            progress = i / len(files) * 100
-            print(f"\r[{progress:5.1f}%] {i}/{len(files)} - {key[:50]:<50} [{status}]", end='')
+            global_i = global_offset + i
+            progress = global_i / total_files * 100
+            print(f"[{progress:5.1f}%] {global_i}/{total_files} - {key[-55:]:<55} [{status}]")
 
-            # Newline for errors
-            if not result['success']:
-                print()
+            # Flush output so progress is visible
+            sys.stdout.flush()
 
-    print("\n")
+    return uploaded, failed, uploaded_size
+
+def main():
     print("=" * 60)
+    print("Cloudflare R2 Upload Script")
+    print("=" * 60)
+    print(f"\nBucket: {R2_BUCKET_NAME}")
+    print(f"Endpoint: {R2_ENDPOINT}")
+
+    # Collect files
+    print("\nCollecting files to upload...")
+    all_files = collect_files()
+
+    if not all_files:
+        print("No files found to upload!")
+        return
+
+    # Check what already exists on R2
+    print("Checking existing files on R2 (for resumability)...")
+    sys.stdout.flush()
+    existing_keys = list_existing_keys()
+    print(f"Found {len(existing_keys)} existing files on R2")
+
+    # Filter to only new files
+    files = [(fp, key) for fp, key in all_files if key not in existing_keys]
+    skipped = len(all_files) - len(files)
+
+    if skipped > 0:
+        print(f"Skipping {skipped} files already on R2")
+
+    if not files:
+        print("\nAll files already uploaded! Nothing to do.")
+        return
+
+    # Calculate total size
+    total_size = sum(f[0].stat().st_size for f in files)
+    print(f"\nWill upload {len(files)} new files ({total_size / (1024*1024):.1f} MB)")
+
+    # Group by directory for display
+    by_dir = {}
+    for filepath, key in files:
+        dir_name = key.split('/')[0]
+        by_dir.setdefault(dir_name, []).append((filepath, key))
+
+    print("\nBreakdown:")
+    for dir_name, dir_files in sorted(by_dir.items()):
+        dir_size = sum(f[0].stat().st_size for f in dir_files)
+        print(f"  {dir_name}/: {len(dir_files)} files ({dir_size / (1024*1024):.1f} MB)")
+
+    print(f"\nStarting upload...")
+    sys.stdout.flush()
+
+    # Upload in batches of 500 to avoid memory issues
+    BATCH_SIZE = 500
+    total_uploaded = 0
+    total_failed = 0
+    total_uploaded_size = 0
+
+    for batch_start in range(0, len(files), BATCH_SIZE):
+        batch = files[batch_start:batch_start + BATCH_SIZE]
+        batch_num = batch_start // BATCH_SIZE + 1
+        total_batches = (len(files) + BATCH_SIZE - 1) // BATCH_SIZE
+
+        uploaded, failed, uploaded_size = upload_batch(
+            batch, batch_num, total_batches, batch_start, len(files)
+        )
+        total_uploaded += uploaded
+        total_failed += failed
+        total_uploaded_size += uploaded_size
+
+    print("\n" + "=" * 60)
     print("Upload Complete!")
     print("=" * 60)
-    print(f"\nSuccessful: {uploaded} files ({uploaded_size / (1024*1024*1024):.2f} GB)")
-    if failed:
-        print(f"Failed: {failed} files")
-
-    print("\nNext steps:")
-    print("1. Get your public R2 URL from Cloudflare dashboard")
-    print("2. Update gallery.json storageBaseUrl with the public URL")
-    print("3. Deploy to Vercel")
+    print(f"\nSuccessful: {total_uploaded} files ({total_uploaded_size / (1024*1024*1024):.2f} GB)")
+    if skipped:
+        print(f"Skipped (already on R2): {skipped} files")
+    if total_failed:
+        print(f"Failed: {total_failed} files")
 
 if __name__ == '__main__':
     main()
