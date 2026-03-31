@@ -29,6 +29,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [appState, setAppState] = useState<AppState>('landing')
   const galleryTopRef = useRef<HTMLDivElement>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
     fetch('/data/gallery.json')
@@ -69,6 +70,10 @@ export default function Home() {
   }
 
   const handleEnterGallery = useCallback(() => {
+    // Create AudioContext synchronously inside user gesture — required for mobile
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext()
+    }
     setAppState('gallery')
     // Smooth scroll to top of gallery after landing dissolves
     setTimeout(() => {
@@ -88,7 +93,7 @@ export default function Home() {
   return (
     <TimeThemeProvider>
       <CustomCursor />
-      <AmbientAudio autoPlay={appState === 'gallery'} />
+      <AmbientAudio autoPlay={appState === 'gallery'} sharedAudioContext={audioContextRef.current} />
 
       <main className="min-h-screen bg-gallery-black">
         {/* Landing hero — shown first, dissolves on enter */}
@@ -187,7 +192,7 @@ export default function Home() {
                 </a>
               </div>
               <p className="font-mono text-[9px] text-gallery-border tracking-wider">
-                &copy; {new Date().getFullYear()} EDWARD MA &middot; ALL RIGHTS RESERVED
+                &copy; {new Date().getFullYear()} EDDIE.RAW &middot; ALL RIGHTS RESERVED
               </p>
             </footer>
           </motion.div>

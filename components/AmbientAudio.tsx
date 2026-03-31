@@ -51,9 +51,10 @@ const SF_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/acoustic
 
 interface AmbientAudioProps {
   autoPlay?: boolean
+  sharedAudioContext?: AudioContext | null
 }
 
-export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
+export default function AmbientAudio({ autoPlay = false, sharedAudioContext = null }: AmbientAudioProps) {
   const { theme } = useTimeTheme()
   const [isPlaying, setIsPlaying] = useState(false)
   const [showHint, setShowHint] = useState(true)
@@ -176,7 +177,8 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
   }, [playNote])
 
   const initAudioGraph = useCallback(() => {
-    const ctx = new AudioContext()
+    // Use shared context (created during user gesture on mobile) or create new
+    const ctx = sharedAudioContext || new AudioContext()
     audioContextRef.current = ctx
 
     const masterGain = ctx.createGain()
@@ -218,7 +220,7 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
     mixNodeRef.current = mixNode
 
     return { ctx, masterGain, mixNode }
-  }, [])
+  }, [sharedAudioContext])
 
   const initAndPlay = useCallback(async () => {
     if (initializingRef.current) return

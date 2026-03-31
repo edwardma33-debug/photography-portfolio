@@ -81,7 +81,7 @@ export default function EndCredits({ onReturnToTop }: EndCreditsProps) {
             className="font-display text-3xl md:text-5xl font-light tracking-wider mb-6"
           >
             <span style={{ color: theme.textTint }}>
-              Edward Ma
+              Eddie.Raw
             </span>
           </motion.h2>
 

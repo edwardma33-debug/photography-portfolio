@@ -161,19 +161,8 @@ export default function LandingHero({ images, storageBaseUrl, onEnter }: Landing
                 className="font-display text-5xl md:text-7xl lg:text-8xl xl:text-9xl font-light text-gallery-white tracking-wider"
                 style={{ textShadow: '0 2px 40px rgba(0,0,0,0.5)' }}
               >
-                Edward Ma
+                Eddie.Raw
               </motion.h1>
-
-              {/* Subtitle */}
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 1, delay: 1.2 }}
-                className="mt-4 md:mt-6 font-mono text-xs md:text-sm tracking-[0.3em] uppercase"
-                style={{ color: theme.accent, textShadow: '0 1px 20px rgba(0,0,0,0.5)' }}
-              >
-                Photography
-              </motion.p>
 
               {/* Decorative line */}
               <motion.div

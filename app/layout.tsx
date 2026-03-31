@@ -2,13 +2,13 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Edward Ma — Photography',
-  description: 'A permanent gallery of photographs by Edward Ma. Medium format photography capturing moments across the world.',
-  keywords: ['photography', 'medium format', 'Fujifilm GFX', 'fine art', 'gallery'],
-  authors: [{ name: 'Edward Ma' }],
+  title: 'Eddie.Raw',
+  description: 'A permanent gallery of photographs by Eddie.Raw. Medium format photography capturing moments across the world.',
+  keywords: ['photography', 'medium format', 'Fujifilm GFX', 'fine art', 'gallery', 'Eddie.Raw'],
+  authors: [{ name: 'Eddie.Raw' }],
   openGraph: {
-    title: 'Edward Ma — Photography',
-    description: 'A permanent gallery of photographs by Edward Ma. Medium format photography capturing moments across the world.',
+    title: 'Eddie.Raw',
+    description: 'A permanent gallery of photographs by Eddie.Raw. Medium format photography capturing moments across the world.',
     type: 'website',
   },
 }
