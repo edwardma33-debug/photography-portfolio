@@ -3,76 +3,51 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTimeTheme } from './TimeThemeProvider'
-import Soundfont from 'soundfont-player'
 
 // Satie — Gnossienne No.1 (public domain)
-// Encoded as [note, duration in beats] pairs
+// Notes as [noteName, duration in beats]
 // '' = rest
 
-const TEMPO = 0.7 // seconds per beat — slow, contemplative
+const TEMPO = 0.7 // seconds per beat
 
-// Bass ostinato pattern (left hand) — repeating F minor arpeggio
+// Bass ostinato (left hand) — F minor arpeggio
 const BASS_PATTERN: [string, number][] = [
-  ['F2', 1],
-  ['C3', 1],
-  ['F3', 1],
-  ['Ab3', 1],
-  ['F3', 1],
-  ['C3', 1],
+  ['F2', 1], ['C3', 1], ['F3', 1], ['Ab3', 1], ['F3', 1], ['C3', 1],
 ]
 
-// Melody phrases (right hand) — the haunting Gnossienne theme
+// Melody phrases (right hand)
 const MELODY_PHRASE_1: [string, number][] = [
-  ['', 6],          // Rest — let bass establish
-  ['', 6],          // Another bar of bass alone
-  ['Bb4', 3],       // The iconic opening note, held
-  ['Ab4', 1],
-  ['G4', 1],
-  ['F4', 1],
-  ['Eb4', 2],
-  ['F4', 2],
-  ['', 2],          // Brief pause
-  ['Bb4', 3],
-  ['Ab4', 1],
-  ['G4', 1],
-  ['F4', 1],
-  ['F4', 2],        // Held
-  ['Eb4', 2],
-  ['Db4', 2],
+  ['', 6], ['', 6],
+  ['Bb4', 3], ['Ab4', 1], ['G4', 1], ['F4', 1],
+  ['Eb4', 2], ['F4', 2], ['', 2],
+  ['Bb4', 3], ['Ab4', 1], ['G4', 1], ['F4', 1],
+  ['F4', 2], ['Eb4', 2], ['Db4', 2],
 ]
 
 const MELODY_PHRASE_2: [string, number][] = [
-  ['Eb4', 3],
-  ['F4', 1],
-  ['Ab4', 1],
-  ['G4', 1],
-  ['F4', 2],
-  ['Eb4', 2],
-  ['Db4', 2],
-  ['C4', 3],
-  ['Db4', 1],
-  ['Eb4', 2],
-  ['F4', 3],        // Resolving
-  ['', 3],          // Rest
+  ['Eb4', 3], ['F4', 1], ['Ab4', 1], ['G4', 1],
+  ['F4', 2], ['Eb4', 2], ['Db4', 2],
+  ['C4', 3], ['Db4', 1], ['Eb4', 2],
+  ['F4', 3], ['', 3],
 ]
 
 const MELODY_PHRASE_3: [string, number][] = [
-  ['C5', 3],        // Higher register, building
-  ['Bb4', 1],
-  ['Ab4', 1],
-  ['G4', 1],
-  ['Ab4', 2],
-  ['Bb4', 2],
-  ['Ab4', 2],
-  ['G4', 1],
-  ['F4', 1],
-  ['Eb4', 2],
-  ['Db4', 2],
-  ['C4', 3],
-  ['', 4],          // Long rest before repeat
+  ['C5', 3], ['Bb4', 1], ['Ab4', 1], ['G4', 1],
+  ['Ab4', 2], ['Bb4', 2], ['Ab4', 2],
+  ['G4', 1], ['F4', 1], ['Eb4', 2],
+  ['Db4', 2], ['C4', 3], ['', 4],
 ]
 
 const FULL_MELODY = [...MELODY_PHRASE_1, ...MELODY_PHRASE_2, ...MELODY_PHRASE_3]
+
+// All unique notes we need to load
+const ALL_NOTES = Array.from(new Set([
+  ...BASS_PATTERN.map(([n]) => n),
+  ...FULL_MELODY.map(([n]) => n),
+].filter(Boolean)))
+
+// Soundfont CDN base
+const SF_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/acoustic_grand_piano-mp3.js'
 
 interface AmbientAudioProps {
   autoPlay?: boolean
@@ -86,7 +61,7 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
   const audioContextRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
   const mixNodeRef = useRef<GainNode | null>(null)
-  const pianoRef = useRef<any>(null)
+  const buffersRef = useRef<Record<string, AudioBuffer>>({})
   const playingRef = useRef(false)
   const initializingRef = useRef(false)
   const bassTimeoutRef = useRef<NodeJS.Timeout>()
@@ -97,59 +72,119 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
     return () => clearTimeout(timer)
   }, [])
 
-  // Schedule the bass loop
-  const startBass = useCallback((piano: any, ctx: AudioContext) => {
+  // Load piano samples from soundfont CDN
+  const loadSamples = useCallback(async (ctx: AudioContext) => {
+    if (Object.keys(buffersRef.current).length > 0) return buffersRef.current
+
+    // Fetch the soundfont JS file — it's a script that sets MIDI.Soundfont.acoustic_grand_piano
+    const response = await fetch(SF_BASE)
+    const text = await response.text()
+
+    // Parse the base64 audio data from the JS file
+    // Format: MIDI.Soundfont.acoustic_grand_piano={note:"data:audio/mp3;base64,...", ...}
+    const match = text.match(/\{([^}]+)\}/)
+    if (!match) throw new Error('Failed to parse soundfont')
+
+    const noteData: Record<string, string> = {}
+    const regex = /"([^"]+)"\s*:\s*"([^"]+)"/g
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(match[1])) !== null) {
+      noteData[m[1]] = m[2]
+    }
+
+    // Decode only the notes we need
+    const buffers: Record<string, AudioBuffer> = {}
+    await Promise.all(ALL_NOTES.map(async (note) => {
+      const dataUri = noteData[note]
+      if (!dataUri) {
+        console.warn(`Note ${note} not found in soundfont`)
+        return
+      }
+      // Extract base64 data from data URI
+      const base64 = dataUri.split(',')[1]
+      if (!base64) return
+
+      const binary = atob(base64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+      }
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0))
+      buffers[note] = audioBuffer
+    }))
+
+    buffersRef.current = buffers
+    return buffers
+  }, [])
+
+  // Play a single note sample
+  const playNote = useCallback((
+    ctx: AudioContext,
+    destination: AudioNode,
+    note: string,
+    duration: number,
+    gain: number,
+  ) => {
+    if (!note) return
+    const buffer = buffersRef.current[note]
+    if (!buffer) return
+
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+
+    const gainNode = ctx.createGain()
+    const now = ctx.currentTime
+    const noteLen = duration * TEMPO
+
+    gainNode.gain.setValueAtTime(gain, now)
+    // Gentle release at the end
+    gainNode.gain.setValueAtTime(gain, now + noteLen * 0.7)
+    gainNode.gain.linearRampToValueAtTime(0, now + noteLen)
+
+    source.connect(gainNode)
+    gainNode.connect(destination)
+    source.start(now)
+    source.stop(now + noteLen + 0.05)
+  }, [])
+
+  // Schedule bass loop
+  const startBass = useCallback((ctx: AudioContext, dest: AudioNode) => {
     let noteIndex = 0
 
     const scheduleNext = () => {
       if (!playingRef.current) return
-
       const [note, dur] = BASS_PATTERN[noteIndex % BASS_PATTERN.length]
-      if (note) {
-        piano.play(note, ctx.currentTime, {
-          duration: dur * TEMPO * 0.9,
-          gain: 0.35,
-        })
-      }
+      playNote(ctx, dest, note, dur, 0.3)
       noteIndex++
       bassTimeoutRef.current = setTimeout(scheduleNext, dur * TEMPO * 1000)
     }
-
     scheduleNext()
-  }, [])
+  }, [playNote])
 
-  // Schedule the melody loop
-  const startMelody = useCallback((piano: any, ctx: AudioContext) => {
+  // Schedule melody loop
+  const startMelody = useCallback((ctx: AudioContext, dest: AudioNode) => {
     let noteIndex = 0
 
     const scheduleNext = () => {
       if (!playingRef.current) return
-
       const [note, dur] = FULL_MELODY[noteIndex % FULL_MELODY.length]
-      if (note) {
-        piano.play(note, ctx.currentTime, {
-          duration: dur * TEMPO * 0.85,
-          gain: 0.55,
-        })
-      }
+      playNote(ctx, dest, note, dur, 0.5)
       noteIndex++
       melodyTimeoutRef.current = setTimeout(scheduleNext, dur * TEMPO * 1000)
     }
-
     scheduleNext()
-  }, [])
+  }, [playNote])
 
   const initAudioGraph = useCallback(() => {
     const ctx = new AudioContext()
     audioContextRef.current = ctx
 
-    // Master gain for fade in/out
     const masterGain = ctx.createGain()
     masterGain.gain.value = 0
     masterGain.connect(ctx.destination)
     masterGainRef.current = masterGain
 
-    // Reverb via delay lines
+    // Delay-based reverb
     const delay1 = ctx.createDelay(1)
     delay1.delayTime.value = 0.15
     const delay1Gain = ctx.createGain()
@@ -165,19 +200,16 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
     delayFilter.frequency.value = 1500
     delayFilter.Q.value = 0.3
 
-    // Dry signal
     const dryGain = ctx.createGain()
     dryGain.gain.value = 0.75
     dryGain.connect(masterGain)
 
-    // Wet signals
     delay1.connect(delay1Gain)
     delay1Gain.connect(delayFilter)
     delay2.connect(delay2Gain)
     delay2Gain.connect(delayFilter)
     delayFilter.connect(masterGain)
 
-    // Mix node — piano goes here, splits to dry + delays
     const mixNode = ctx.createGain()
     mixNode.gain.value = 1
     mixNode.connect(dryGain)
@@ -189,57 +221,46 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
   }, [])
 
   const initAndPlay = useCallback(async () => {
-    // Prevent double-init
     if (initializingRef.current) return
     initializingRef.current = true
 
     try {
       let ctx = audioContextRef.current
-      let piano = pianoRef.current
 
       if (!ctx) {
-        // First time — build the audio graph
         const graph = initAudioGraph()
         ctx = graph.ctx
 
-        // Load real piano samples — connects directly to our mix node
-        piano = await Soundfont.instrument(ctx, 'acoustic_grand_piano', {
-          destination: graph.mixNode,
-        })
-        pianoRef.current = piano
+        // Load real piano samples
+        await loadSamples(ctx)
 
         // Fade in
+        playingRef.current = true
         graph.masterGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
+        startBass(ctx, graph.mixNode)
+        startMelody(ctx, graph.mixNode)
       } else {
-        // Resume existing context
         await ctx.resume()
+        playingRef.current = true
         if (masterGainRef.current) {
           masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
           masterGainRef.current.gain.setValueAtTime(masterGainRef.current.gain.value, ctx.currentTime)
           masterGainRef.current.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
         }
+        if (mixNodeRef.current) {
+          startBass(ctx, mixNodeRef.current)
+          startMelody(ctx, mixNodeRef.current)
+        }
       }
-
-      if (!piano) {
-        console.warn('Piano failed to load')
-        initializingRef.current = false
-        return
-      }
-
-      // Start the sequences
-      playingRef.current = true
-      startBass(piano, ctx)
-      startMelody(piano, ctx)
     } catch (err) {
       console.error('Audio init failed:', err)
     } finally {
       initializingRef.current = false
     }
-  }, [initAudioGraph, startBass, startMelody])
+  }, [initAudioGraph, loadSamples, startBass, startMelody])
 
   const togglePlay = useCallback(() => {
     if (isPlaying) {
-      // Stop
       playingRef.current = false
       if (bassTimeoutRef.current) clearTimeout(bassTimeoutRef.current)
       if (melodyTimeoutRef.current) clearTimeout(melodyTimeoutRef.current)
@@ -315,7 +336,6 @@ export default function AmbientAudio({ autoPlay = false }: AmbientAudioProps) {
         )}
       </button>
 
-      {/* Label */}
       <AnimatePresence>
         {showHint && (
           <motion.span
