@@ -83,13 +83,17 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
 
     // Parse the base64 audio data from the JS file
     // Format: MIDI.Soundfont.acoustic_grand_piano={note:"data:audio/mp3;base64,...", ...}
-    const match = text.match(/\{([^}]+)\}/)
-    if (!match) throw new Error('Failed to parse soundfont')
+    // Extract the object between first { and last }
+    const startIdx = text.indexOf('{')
+    const endIdx = text.lastIndexOf('}')
+    if (startIdx === -1 || endIdx === -1) throw new Error('Failed to parse soundfont')
+    const objStr = text.slice(startIdx + 1, endIdx)
 
     const noteData: Record<string, string> = {}
-    const regex = /"([^"]+)"\s*:\s*"([^"]+)"/g
+    // Match each "noteName":"dataUri" pair — values contain special chars so we match quoted strings carefully
+    const regex = /"([A-Ga-g][b#]?\d)"\s*:\s*"(data:audio[^"]+)"/g
     let m: RegExpExecArray | null
-    while ((m = regex.exec(match[1])) !== null) {
+    while ((m = regex.exec(objStr)) !== null) {
       noteData[m[1]] = m[2]
     }
 
