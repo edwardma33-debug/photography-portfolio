@@ -30,6 +30,9 @@ export default function Home() {
   const [appState, setAppState] = useState<AppState>('landing')
   const galleryTopRef = useRef<HTMLDivElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  // Use state (not just ref) so the AudioContext value triggers a re-render
+  // and AmbientAudio receives it as a prop on the same render cycle as autoPlay=true
+  const [sharedAudioCtx, setSharedAudioCtx] = useState<AudioContext | null>(null)
 
   useEffect(() => {
     fetch('/data/gallery.json')
@@ -70,9 +73,13 @@ export default function Home() {
   }
 
   const handleEnterGallery = useCallback(() => {
-    // Create AudioContext synchronously inside user gesture — required for mobile
+    // Create AudioContext synchronously inside user gesture — required for mobile.
+    // Store in both ref (for non-render access) and state (to trigger re-render
+    // so AmbientAudio receives the context on the SAME render as autoPlay=true).
     if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext()
+      const ctx = new AudioContext()
+      audioContextRef.current = ctx
+      setSharedAudioCtx(ctx)
     }
     setAppState('gallery')
     // Smooth scroll to top of gallery after landing dissolves
@@ -93,7 +100,7 @@ export default function Home() {
   return (
     <TimeThemeProvider>
       <CustomCursor />
-      <AmbientAudio autoPlay={appState === 'gallery'} sharedAudioContext={audioContextRef.current} />
+      <AmbientAudio autoPlay={appState === 'gallery'} sharedAudioContext={sharedAudioCtx} />
 
       <main className="min-h-screen bg-gallery-black">
         {/* Landing hero — shown first, dissolves on enter */}

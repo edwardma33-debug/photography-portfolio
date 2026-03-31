@@ -67,6 +67,10 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
   const initializingRef = useRef(false)
   const bassTimeoutRef = useRef<NodeJS.Timeout>()
   const melodyTimeoutRef = useRef<NodeJS.Timeout>()
+  // Keep a live reference to the sharedAudioContext prop so cleanup
+  // always sees the latest value (avoids stale closure from mount-time null)
+  const sharedCtxRef = useRef(sharedAudioContext)
+  sharedCtxRef.current = sharedAudioContext
 
   useEffect(() => {
     const timer = setTimeout(() => setShowHint(false), 8000)
@@ -75,12 +79,18 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
 
   // Load individual piano samples
   const loadSamples = useCallback(async (ctx: AudioContext) => {
-    if (Object.keys(buffersRef.current).length > 0) return buffersRef.current
+    // Only skip if ALL samples are already loaded (not just "some")
+    if (Object.keys(buffersRef.current).length === ALL_NOTES.length) return buffersRef.current
 
     const buffers: Record<string, AudioBuffer> = {}
 
     // Fetch each note as an individual small MP3 file
     await Promise.all(ALL_NOTES.map(async (note) => {
+      // Reuse already-loaded buffers (partial reload for failed ones)
+      if (buffersRef.current[note]) {
+        buffers[note] = buffersRef.current[note]
+        return
+      }
       try {
         const url = `${NOTE_URL_BASE}/${encodeURIComponent(note)}.mp3`
         const response = await fetch(url)
@@ -158,12 +168,16 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     scheduleNext()
   }, [playNote])
 
-  const initAudioGraph = useCallback(() => {
-    const ctx = sharedAudioContext || new AudioContext()
+  const initAudioGraph = useCallback((ctxOverride?: AudioContext | null) => {
+    // FIX Bug 2: Accept the context as a parameter so we use the live value,
+    // not the stale closure-captured sharedAudioContext (which is null on first render)
+    const ctx = ctxOverride || new AudioContext()
     audioContextRef.current = ctx
 
     const masterGain = ctx.createGain()
-    masterGain.gain.value = 0
+    // FIX Bug 1: Explicitly anchor the gain at 0 with setValueAtTime
+    // so the subsequent linearRamp has a defined start point
+    masterGain.gain.setValueAtTime(0, ctx.currentTime)
     masterGain.connect(ctx.destination)
     masterGainRef.current = masterGain
 
@@ -201,7 +215,7 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     mixNodeRef.current = mixNode
 
     return { ctx, masterGain, mixNode }
-  }, [sharedAudioContext])
+  }, [])  // No longer depends on sharedAudioContext — it's passed as a parameter
 
   const initAndPlay = useCallback(async () => {
     if (initializingRef.current) return
@@ -211,7 +225,9 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       let ctx = audioContextRef.current
 
       if (!ctx) {
-        const graph = initAudioGraph()
+        // FIX Bug 2: Read sharedAudioContext from the live ref, not the
+        // potentially-stale prop captured in the closure
+        const graph = initAudioGraph(sharedCtxRef.current)
         ctx = graph.ctx
 
         // Ensure context is running (mobile fix)
@@ -219,11 +235,23 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
           await ctx.resume()
         }
 
+        // FIX Bug 5: If context is STILL suspended after resume() (no user gesture),
+        // we can't produce sound. Bail out and let the user click the button instead.
+        if (ctx.state === 'suspended') {
+          console.warn('AudioContext is suspended (no user gesture). Sound will start on manual play.')
+          initializingRef.current = false
+          return false  // Signal that playback didn't actually start
+        }
+
         // Load piano samples
         await loadSamples(ctx)
 
-        // Fade in
+        // FIX Bug 4: Set playingRef BEFORE starting loops so the first
+        // scheduleNext() callback sees it as true
         playingRef.current = true
+
+        // FIX Bug 1: Anchor gain at 0, then ramp to 1
+        graph.masterGain.gain.setValueAtTime(0, ctx.currentTime)
         graph.masterGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 3)
         startBass(ctx, graph.mixNode)
         startMelody(ctx, graph.mixNode)
@@ -232,6 +260,10 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
         if (ctx.state === 'suspended') {
           await ctx.resume()
         }
+
+        // FIX Bug 6: Ensure samples are loaded before restarting loops
+        await loadSamples(ctx)
+
         playingRef.current = true
         if (masterGainRef.current) {
           masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
@@ -243,8 +275,10 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
           startMelody(ctx, mixNodeRef.current)
         }
       }
+      return true  // Playback started successfully
     } catch (err) {
       console.error('Audio init failed:', err)
+      return false
     } finally {
       initializingRef.current = false
     }
@@ -264,8 +298,12 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       }
       setIsPlaying(false)
     } else {
-      initAndPlay()
-      setIsPlaying(true)
+      // FIX Bug 4: Only set isPlaying to true if initAndPlay actually succeeded
+      initAndPlay().then((started) => {
+        if (started) {
+          setIsPlaying(true)
+        }
+      })
     }
   }, [isPlaying, initAndPlay])
 
@@ -273,8 +311,12 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
   useEffect(() => {
     if (autoPlay && !hasAutoPlayed.current && !isPlaying) {
       hasAutoPlayed.current = true
-      initAndPlay()
-      setIsPlaying(true)
+      // FIX Bug 4: Only show playing UI if audio actually started
+      initAndPlay().then((started) => {
+        if (started) {
+          setIsPlaying(true)
+        }
+      })
     }
   }, [autoPlay, isPlaying, initAndPlay])
 
@@ -284,12 +326,14 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       playingRef.current = false
       if (bassTimeoutRef.current) clearTimeout(bassTimeoutRef.current)
       if (melodyTimeoutRef.current) clearTimeout(melodyTimeoutRef.current)
-      if (audioContextRef.current && !sharedAudioContext) {
+      // FIX Bug 5: Use the live ref to check the shared context,
+      // not the stale closure-captured prop value (which was null at mount time)
+      if (audioContextRef.current && !sharedCtxRef.current) {
         // Only close if we created it (don't close shared context)
         audioContextRef.current.close()
       }
     }
-  }, [sharedAudioContext])
+  }, [])  // No dependency on sharedAudioContext — we use the ref
 
   return (
     <div className="fixed bottom-6 left-6 z-50 flex items-center gap-3">
