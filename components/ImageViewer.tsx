@@ -43,6 +43,8 @@ export default function ImageViewer({
     const dziPath = `${tilesUrl}/image.dzi`
     console.log('Loading DZI from:', dziPath)
 
+    const isPortrait = image.aspectRatio < 1
+
     osdRef.current = OpenSeadragon({
       element: viewerRef.current,
       tileSources: dziPath,
@@ -58,14 +60,13 @@ export default function ImageViewer({
       showRotationControl: false,
       animationTime: 0.3,
       springStiffness: 10,
-      visibilityRatio: 1,
+      visibilityRatio: 0.8,
       constrainDuringPan: true,
-      // Use image ratio instead of absolute zoom for large images
-      minZoomImageRatio: 0.8,
+      minZoomImageRatio: 0.3,
       maxZoomPixelRatio: 4,
-      // Start with image filling the viewer
       defaultZoomLevel: 0,
-      homeFillsViewer: true,
+      // Portrait: fit whole image in view; Landscape: fill the viewport
+      homeFillsViewer: !isPortrait,
       gestureSettingsMouse: {
         clickToZoom: true,
         dblClickToZoom: true,
@@ -91,21 +92,20 @@ export default function ImageViewer({
           if (osdRef.current && viewerRef.current) {
             osdRef.current.viewport.resize()
 
-            // Portrait: zoom out more so full image is visible
-            // Landscape: closer in to appreciate detail
-            const isPortrait = image.aspectRatio < 1
-            const zoomFactor = isPortrait ? 0.45 : 0.67
             const homeZoom = osdRef.current.viewport.getHomeZoom()
-            const targetZoom = homeZoom * zoomFactor
-            osdRef.current.viewport.zoomTo(targetZoom, undefined, true)
+            if (isPortrait) {
+              // Home zoom already fits full image — just go home
+              osdRef.current.viewport.goHome(true)
+            } else {
+              // Landscape: start at 67% for a comfortable overview
+              osdRef.current.viewport.zoomTo(homeZoom * 0.67, undefined, true)
+            }
           }
         }, 100)
 
         const homeZoom = osdRef.current.viewport.getHomeZoom()
-        const isPortrait = image.aspectRatio < 1
-        const initialFactor = isPortrait ? 0.45 : 0.67
         ;(osdRef.current as any).homeZoom = homeZoom
-        setZoomLevel(initialFactor)
+        setZoomLevel(isPortrait ? 1 : 0.67)
       }
     })
 

@@ -46,8 +46,8 @@ const ALL_NOTES = Array.from(new Set([
   ...FULL_MELODY.map(([n]) => n),
 ].filter(Boolean)))
 
-// Soundfont CDN base
-const SF_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/acoustic_grand_piano-mp3.js'
+// Individual note MP3 files from soundfont CDN (~15 small files instead of one 3MB blob)
+const NOTE_URL_BASE = 'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/acoustic_grand_piano-mp3'
 
 interface AmbientAudioProps {
   autoPlay?: boolean
@@ -73,51 +73,30 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     return () => clearTimeout(timer)
   }, [])
 
-  // Load piano samples from soundfont CDN
+  // Load individual piano samples
   const loadSamples = useCallback(async (ctx: AudioContext) => {
     if (Object.keys(buffersRef.current).length > 0) return buffersRef.current
 
-    // Fetch the soundfont JS file — it's a script that sets MIDI.Soundfont.acoustic_grand_piano
-    const response = await fetch(SF_BASE)
-    const text = await response.text()
-
-    // Parse the base64 audio data from the JS file
-    // Format: MIDI.Soundfont.acoustic_grand_piano={note:"data:audio/mp3;base64,...", ...}
-    // Extract the object between first { and last }
-    const startIdx = text.indexOf('{')
-    const endIdx = text.lastIndexOf('}')
-    if (startIdx === -1 || endIdx === -1) throw new Error('Failed to parse soundfont')
-    const objStr = text.slice(startIdx + 1, endIdx)
-
-    const noteData: Record<string, string> = {}
-    // Match each "noteName":"dataUri" pair — values contain special chars so we match quoted strings carefully
-    const regex = /"([A-Ga-g][b#]?\d)"\s*:\s*"(data:audio[^"]+)"/g
-    let m: RegExpExecArray | null
-    while ((m = regex.exec(objStr)) !== null) {
-      noteData[m[1]] = m[2]
-    }
-
-    // Decode only the notes we need
     const buffers: Record<string, AudioBuffer> = {}
-    await Promise.all(ALL_NOTES.map(async (note) => {
-      const dataUri = noteData[note]
-      if (!dataUri) {
-        console.warn(`Note ${note} not found in soundfont`)
-        return
-      }
-      // Extract base64 data from data URI
-      const base64 = dataUri.split(',')[1]
-      if (!base64) return
 
-      const binary = atob(base64)
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i)
+    // Fetch each note as an individual small MP3 file
+    await Promise.all(ALL_NOTES.map(async (note) => {
+      try {
+        const url = `${NOTE_URL_BASE}/${encodeURIComponent(note)}.mp3`
+        const response = await fetch(url)
+        if (!response.ok) {
+          console.warn(`Failed to fetch note ${note}: ${response.status}`)
+          return
+        }
+        const arrayBuffer = await response.arrayBuffer()
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+        buffers[note] = audioBuffer
+      } catch (err) {
+        console.warn(`Failed to decode note ${note}:`, err)
       }
-      const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0))
-      buffers[note] = audioBuffer
     }))
 
+    console.log(`Loaded ${Object.keys(buffers).length}/${ALL_NOTES.length} piano samples`)
     buffersRef.current = buffers
     return buffers
   }, [])
@@ -142,7 +121,6 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
     const noteLen = duration * TEMPO
 
     gainNode.gain.setValueAtTime(gain, now)
-    // Gentle release at the end
     gainNode.gain.setValueAtTime(gain, now + noteLen * 0.7)
     gainNode.gain.linearRampToValueAtTime(0, now + noteLen)
 
@@ -181,7 +159,6 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
   }, [playNote])
 
   const initAudioGraph = useCallback(() => {
-    // Use shared context (created during user gesture on mobile) or create new
     const ctx = sharedAudioContext || new AudioContext()
     audioContextRef.current = ctx
 
@@ -237,7 +214,12 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
         const graph = initAudioGraph()
         ctx = graph.ctx
 
-        // Load real piano samples
+        // Ensure context is running (mobile fix)
+        if (ctx.state === 'suspended') {
+          await ctx.resume()
+        }
+
+        // Load piano samples
         await loadSamples(ctx)
 
         // Fade in
@@ -246,7 +228,10 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
         startBass(ctx, graph.mixNode)
         startMelody(ctx, graph.mixNode)
       } else {
-        await ctx.resume()
+        // Resume existing context
+        if (ctx.state === 'suspended') {
+          await ctx.resume()
+        }
         playingRef.current = true
         if (masterGainRef.current) {
           masterGainRef.current.gain.cancelScheduledValues(ctx.currentTime)
@@ -299,11 +284,12 @@ export default function AmbientAudio({ autoPlay = false, sharedAudioContext = nu
       playingRef.current = false
       if (bassTimeoutRef.current) clearTimeout(bassTimeoutRef.current)
       if (melodyTimeoutRef.current) clearTimeout(melodyTimeoutRef.current)
-      if (audioContextRef.current) {
+      if (audioContextRef.current && !sharedAudioContext) {
+        // Only close if we created it (don't close shared context)
         audioContextRef.current.close()
       }
     }
-  }, [])
+  }, [sharedAudioContext])
 
   return (
     <div className="fixed bottom-6 left-6 z-50 flex items-center gap-3">
