@@ -2,7 +2,8 @@
   "title": "Edward Ma",
   "subtitle": "Photography",
   "author": "Edward Ma",
-  "storageBaseUrl": "",
+  "storageBaseUrl": "https://pub-31b05f05afc34bc4888b24ae1c31d355.r2.dev",
+  "heroImages": ["83b715018281", "5169f673576f"],
   "images": [
     {
       "id": "a2ea69eeb250",
