@@ -7,6 +7,7 @@ import TimeThemeProvider from '@/components/TimeThemeProvider'
 import CustomCursor from '@/components/CustomCursor'
 import LandingHero from '@/components/LandingHero'
 import ScrollGallery from '@/components/ScrollGallery'
+import GridGallery from '@/components/GridGallery'
 import AmbientAudio from '@/components/AmbientAudio'
 import EndCredits from '@/components/EndCredits'
 import { ImageData, GalleryData } from '@/lib/types'
@@ -28,6 +29,7 @@ export default function Home() {
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [appState, setAppState] = useState<AppState>('landing')
+  const [viewMode, setViewMode] = useState<'scroll' | 'grid'>('scroll')
   const galleryTopRef = useRef<HTMLDivElement>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   // Use state (not just ref) so the AudioContext value triggers a re-render
@@ -159,26 +161,83 @@ export default function Home() {
                 className="mt-12 mx-auto w-24 h-px bg-gradient-to-r from-transparent via-gallery-border to-transparent"
               />
 
+              {/* View toggle */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.8, duration: 1 }}
+                className="mt-12 flex items-center justify-center gap-3"
+              >
+                <button
+                  onClick={() => setViewMode('scroll')}
+                  className={`p-2 rounded transition-all duration-300 ${
+                    viewMode === 'scroll'
+                      ? 'text-gallery-white'
+                      : 'text-gallery-muted hover:text-gallery-text'
+                  }`}
+                  data-cursor-type="clickable"
+                  aria-label="Scroll view"
+                >
+                  {/* Single image / scroll icon */}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="4" y="3" width="16" height="18" rx="1" strokeLinecap="round" />
+                    <line x1="4" y1="12" x2="20" y2="12" strokeLinecap="round" />
+                  </svg>
+                </button>
+
+                <div className="w-px h-4 bg-gallery-border" />
+
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded transition-all duration-300 ${
+                    viewMode === 'grid'
+                      ? 'text-gallery-white'
+                      : 'text-gallery-muted hover:text-gallery-text'
+                  }`}
+                  data-cursor-type="clickable"
+                  aria-label="Grid view"
+                >
+                  {/* Grid icon */}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="3" y="3" width="7" height="7" rx="0.5" />
+                    <rect x="14" y="3" width="7" height="7" rx="0.5" />
+                    <rect x="3" y="14" width="7" height="7" rx="0.5" />
+                    <rect x="14" y="14" width="7" height="7" rx="0.5" />
+                  </svg>
+                </button>
+              </motion.div>
+
               {/* Scroll hint */}
               <motion.p
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 2, duration: 1 }}
-                className="mt-16 font-mono text-[9px] tracking-[0.4em] uppercase text-gallery-muted"
+                className="mt-6 font-mono text-[9px] tracking-[0.4em] uppercase text-gallery-muted"
               >
-                Scroll to explore
+                {viewMode === 'scroll' ? 'Scroll to explore' : 'Browse collection'}
               </motion.p>
             </header>
 
-            {/* Scroll gallery */}
-            <ScrollGallery
-              images={galleryData.images}
-              onImageClick={handleImageClick}
-              storageBaseUrl={galleryData.storageBaseUrl}
-            />
-
-            {/* End credits */}
-            <EndCredits onReturnToTop={handleReturnToTop} />
+            {/* Gallery view */}
+            {viewMode === 'scroll' ? (
+              <>
+                <ScrollGallery
+                  images={galleryData.images}
+                  onImageClick={handleImageClick}
+                  storageBaseUrl={galleryData.storageBaseUrl}
+                />
+                <EndCredits onReturnToTop={handleReturnToTop} />
+              </>
+            ) : (
+              <>
+                <GridGallery
+                  images={galleryData.images}
+                  onImageClick={handleImageClick}
+                  storageBaseUrl={galleryData.storageBaseUrl}
+                />
+                <div className="py-24" />
+              </>
+            )}
 
             {/* Minimal footer */}
             <footer className="py-8 text-center">
